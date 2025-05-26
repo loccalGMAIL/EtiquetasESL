@@ -34,10 +34,57 @@ class UploadController extends Controller
     /**
      * Almacenar archivo y procesar
      */
+    // public function store(Request $request)
+    // {
+    //     $request->validate([
+    //         'file' => 'required|file|mimes:xlsx,xls|max:10240', // Max 10MB
+    //         'shop_code' => 'nullable|string'
+    //     ]);
+        
+    //     DB::beginTransaction();
+        
+    //     try {
+    //         // Guardar archivo
+    //         $file = $request->file('file');
+    //         $filename = time() . '_' . $file->getClientOriginalName();
+    //         $path = $file->storeAs('uploads', $filename);
+            
+    //         // Crear registro de upload
+    //         $upload = Upload::create([
+    //             'filename' => $path,
+    //             'original_filename' => $file->getClientOriginalName(),
+    //             'shop_code' => $request->shop_code ?? config('eretail.default_shop_code'),
+    //             'user_id' => auth()->id() ?? null,
+    //             'status' => 'pending'
+    //         ]);
+            
+    //         DB::commit();
+            
+    //         // Despachar el procesamiento (lo haremos síncrono por ahora)
+    //         // En producción, esto debería ser un Job en cola
+    //         $this->processUpload($upload->id);
+            
+    //         return redirect()
+    //             ->route('uploads.show', $upload)
+    //             ->with('success', 'Archivo cargado correctamente. Procesando...');
+                
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+            
+    //         return redirect()
+    //             ->back()
+    //             ->with('error', 'Error al cargar archivo: ' . $e->getMessage())
+    //             ->withInput();
+    //     }
+    // }
+
+    /**
+     * Almacenar archivo y procesar
+     */
     public function store(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls|max:10240', // Max 10MB
+            'file' => 'required|file|mimes:xlsx,xls|max:10240',
             'shop_code' => 'nullable|string'
         ]);
         
@@ -49,6 +96,8 @@ class UploadController extends Controller
             $filename = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('uploads', $filename);
             
+            Log::info("Archivo guardado en: {$path}");
+            
             // Crear registro de upload
             $upload = Upload::create([
                 'filename' => $path,
@@ -58,18 +107,40 @@ class UploadController extends Controller
                 'status' => 'pending'
             ]);
             
+            Log::info("Upload creado con ID: {$upload->id}");
+            
             DB::commit();
             
-            // Despachar el procesamiento (lo haremos síncrono por ahora)
-            // En producción, esto debería ser un Job en cola
-            $this->processUpload($upload->id);
-            
-            return redirect()
-                ->route('uploads.show', $upload)
-                ->with('success', 'Archivo cargado correctamente. Procesando...');
+            // Procesar inmediatamente de forma síncrona
+            try {
+                Log::info("Iniciando procesamiento del upload {$upload->id}");
+                
+                $processor = app(ExcelProcessorService::class);
+                $processor->processFile($path, $upload->id);
+                
+                Log::info("Procesamiento completado exitosamente");
+                
+                return redirect()
+                    ->route('uploads.show', $upload)
+                    ->with('success', 'Archivo procesado correctamente.');
+                    
+            } catch (\Exception $e) {
+                Log::error("Error en procesamiento: " . $e->getMessage());
+                
+                // Actualizar el upload con el error
+                $upload->update([
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage()
+                ]);
+                
+                return redirect()
+                    ->route('uploads.show', $upload)
+                    ->with('error', 'Error al procesar el archivo: ' . $e->getMessage());
+            }
                 
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error("Error al cargar archivo: " . $e->getMessage());
             
             return redirect()
                 ->back()
