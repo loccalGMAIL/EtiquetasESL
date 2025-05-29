@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     public function up()
     {
         Schema::create('app_settings', function (Blueprint $table) {
@@ -15,7 +14,7 @@ return new class extends Migration
             $table->string('description')->nullable();
             $table->string('type')->default('string'); // string, integer, boolean, json
             $table->timestamps();
-            
+
             $table->index('key');
         });
 
@@ -55,6 +54,12 @@ return new class extends Migration
                 'value' => 'true',
                 'description' => 'Crear productos que no existen en eRetail',
                 'type' => 'boolean'
+            ],
+            [
+                'key' => 'excel_skip_rows',
+                'value' => '2',
+                'description' => 'Número de filas a omitir al inicio del Excel (0 = no omitir)',
+                'type' => 'integer'
             ]
         ];
 
