@@ -18,7 +18,7 @@ return new class extends Migration
             $table->decimal('precio_anterior_eretail', 10, 2)->nullable();
             $table->timestamp('fec_ul_mo')->nullable();
             $table->enum('action', ['created', 'updated', 'skipped']);
-            $table->enum('status', ['success', 'failed', 'skipped'])->default('success');
+            $table->enum('status', ['success', 'failed', 'skipped','pending'])->default('success');
             $table->string('skip_reason')->nullable();
             $table->text('error_message')->nullable();
             $table->timestamps();

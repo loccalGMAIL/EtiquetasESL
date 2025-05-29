@@ -26,21 +26,22 @@ class SettingsController extends Controller
     /**
      * Actualizar configuración
      */
-    public function update(Request $request)
-    {
-        $request->validate([
-            'discount_percentage' => 'required|numeric|min:0|max:100',
-            'update_mode' => 'required|in:check_date,force_all,manual',
-            'default_shop_code' => 'required|string',
-            'create_missing_products' => 'required|boolean'
-        ]);
+public function update(Request $request)
+{
+    $request->validate([
+        'discount_percentage' => 'required|numeric|min:0|max:100',
+        'update_mode' => 'required|in:check_date,force_all,manual',
+        'default_shop_code' => 'required|string',
+        'create_missing_products' => 'required|boolean',
+        'excel_skip_rows' => 'required|integer|min:0|max:10' // ✅ Nueva validación
+    ]);
 
-        foreach ($request->except('_token', '_method') as $key => $value) {
-            AppSetting::set($key, $value);
-        }
-
-        return redirect()
-            ->route('settings.index')
-            ->with('success', 'Configuración actualizada correctamente');
+    foreach ($request->except('_token', '_method') as $key => $value) {
+        AppSetting::set($key, $value);
     }
+
+    return redirect()
+        ->route('settings.index')
+        ->with('success', 'Configuración actualizada correctamente');
+}
 }
