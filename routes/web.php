@@ -21,8 +21,9 @@ Route::resource('uploads', UploadController::class)->only([
 ]);
 Route::get('uploads/{upload}/download', [UploadController::class, 'download'])->name('uploads.download');
 Route::get('uploads/{upload}/report', [UploadController::class, 'report'])->name('uploads.report');
-Route::get('uploads/{upload}/status', [UploadStatusController::class, 'show'])
-    ->name('api.uploads.status');
+Route::get('uploads/{upload}/status', [UploadStatusController::class, 'show'])->name('api.uploads.status');
+Route::post('uploads/{upload}/refresh-tags', [UploadController::class, 'refreshTags'])->name('uploads.refresh-tags');
+
 
 // Rutas de configuración
 Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Upload;
 use App\Models\ProductUpdateLog;
 use App\Services\ExcelProcessorService;
+use App\Services\ERetailService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -165,4 +166,45 @@ class UploadController extends Controller
             Log::error("Error procesando upload {$uploadId}: " . $e->getMessage());
         }
     }
+
+    
+// Agregar método en UploadController.php:
+public function refreshTags(Upload $upload)
+{
+    try {
+        // Obtener productos exitosos
+        $successfulProducts = ProductUpdateLog::where('upload_id', $upload->id)
+            ->where('status', 'success')
+            ->whereIn('action', ['created', 'updated'])
+            ->pluck('cod_barras')
+            ->unique()
+            ->values()
+            ->toArray();
+        
+        if (empty($successfulProducts)) {
+            return redirect()
+                ->back()
+                ->with('error', 'No hay productos para actualizar');
+        }
+        
+        // Actualizar etiquetas
+        $eRetailService = app(ERetailService::class);
+        $result = $eRetailService->refreshSpecificTags($successfulProducts, $upload->shop_code);
+        
+        if ($result['success']) {
+            return redirect()
+                ->back()
+                ->with('success', 'Actualización de etiquetas iniciada. Se actualizarán ' . count($successfulProducts) . ' etiquetas en los próximos minutos.');
+        }
+        
+        return redirect()
+            ->back()
+            ->with('error', 'Error al solicitar actualización: ' . $result['message']);
+            
+    } catch (\Exception $e) {
+        return redirect()
+            ->back()
+            ->with('error', 'Error: ' . $e->getMessage());
+    }
+}
 }

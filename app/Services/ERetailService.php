@@ -70,38 +70,6 @@ class ERetailService
     /**
      * Realizar petición autenticada
      */
-    // private function authenticatedRequest($method, $endpoint, $options = [])
-    // {
-    //     if (!$this->token) {
-    //         $this->login();
-    //     }
-
-    //     $options['headers'] = array_merge($options['headers'] ?? [], [
-    //         'Authorization' => 'Bearer ' . $this->token
-    //     ]);
-
-    //     try {
-    //         $response = $this->client->request($method, $endpoint, $options);
-    //         return json_decode($response->getBody()->getContents(), true);
-
-    //     } catch (GuzzleException $e) {
-    //         // Si el error es 401, intentar login de nuevo
-    //         if ($e->getCode() === 401) {
-    //             Log::info('Token expirado, reautenticando...');
-    //             Cache::forget('eretail_token');
-    //             $this->token = null;
-    //             $this->login();
-
-    //             // Reintentar la petición
-    //             $options['headers']['Authorization'] = 'Bearer ' . $this->token;
-    //             $response = $this->client->request($method, $endpoint, $options);
-    //             return json_decode($response->getBody()->getContents(), true);
-    //         }
-
-    //         throw $e;
-    //     }
-    // }
-
     private function authenticatedRequest($method, $endpoint, $options = [])
     {
         if (!$this->token) {
@@ -180,29 +148,6 @@ class ERetailService
     /**
      * Crear o actualizar productos
      */
-    // public function saveProducts($products)
-    // {
-    //     try {
-    //         $response = $this->authenticatedRequest('POST', '/api/goods/saveList?NR=false', [
-    //             'json' => $products
-    //         ]);
-
-    //         if ($response['code'] === 0) {
-    //             return [
-    //                 'success' => true,
-    //                 'message' => $response['message'] ?? 'Productos guardados correctamente',
-    //                 'body' => $response['body'] ?? null
-    //             ];
-    //         }
-
-    //         throw new ERetailException($response['message'] ?? 'Error al guardar productos');
-
-    //     } catch (GuzzleException $e) {
-    //         Log::error('Error guardando productos: ' . $e->getMessage());
-    //         throw new ERetailException('Error al guardar productos: ' . $e->getMessage());
-    //     }
-    // }
-
     public function saveProducts($products)
     {
         try {
@@ -254,37 +199,6 @@ class ERetailService
     /**
      * Construir array de producto para eRetail
      */
-    // public function buildProductData($productInfo, $shopCode = null)
-    // {
-    //     $shopCode = $shopCode ?? $this->config['default_shop_code'];
-
-    //     return [
-    //         'shopCode' => $shopCode,
-    //         'template' => 'REG', // Template regular
-    //         'items' => [
-    //             $shopCode,                          // [0] Código tienda cliente
-    //             $productInfo['cod_barras'],         // [1] Código único
-    //             $productInfo['descripcion'],        // [2] Nombre producto
-    //             $productInfo['cod_barras'],         // [3] UPC1
-    //             '',                                 // [4] UPC2
-    //             '',                                 // [5] UPC3
-    //             (string)$productInfo['precio_original'],    // [6] Precio original
-    //             (string)$productInfo['precio_descuento'],   // [7] Precio promocional
-    //             '',                                 // [8] Precio miembro
-    //             'Argentina',                        // [9] Origen
-    //             'Unidad',                          // [10] Especificación
-    //             'UN',                              // [11] Unidad
-    //             '',                                // [12] Grado
-    //             '',                                // [13] Fecha inicio promo
-    //             '',                                // [14] Fecha fin promo
-    //             '',                                // [15] Código QR
-    //             'Sistema',                         // [16] Responsable precio
-    //             '0',                               // [17] Inventario
-    //             '',                                // [18-26] Campos adicionales vacíos
-    //             '', '', '', '', '', '', '', ''
-    //         ]
-    //     ];
-    // }
     public function buildProductData($productInfo, $shopCode = null)
     {
         $shopCode = $shopCode ?? $this->config['default_shop_code'];
@@ -335,6 +249,131 @@ class ERetailService
             return $response->getBody()->getContents() === 'OK';
         } catch (GuzzleException $e) {
             return false;
+        }
+    }
+
+    /**
+     * Actualizar etiquetas específicas (por lista de códigos de barras)
+     */
+    public function refreshSpecificTags($productCodes, $shopCode = null)
+    {
+        $shopCode = $shopCode ?? $this->config['default_shop_code'];
+
+        try {
+            Log::info('Solicitando actualización de etiquetas específicas', [
+                'shop_code' => $shopCode,
+                'productos_count' => count($productCodes),
+                'productos' => array_slice($productCodes, 0, 5) // Solo los primeros 5 para log
+            ]);
+
+            $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
+                'json' => [
+                    'shopCode' => $shopCode,
+                    'refreshType' => 4, // 4 = Lista específica de tags
+                    'refreshName' => '',
+                    'tags' => $productCodes
+                ]
+            ]);
+
+            if ($response['code'] === 0) {
+                Log::info('Actualización de etiquetas iniciada correctamente', [
+                    'message' => $response['message'] ?? 'Sin mensaje'
+                ]);
+
+                return [
+                    'success' => true,
+                    'message' => $response['message'] ?? 'Actualización iniciada correctamente'
+                ];
+            }
+
+            Log::error('Error en actualización de etiquetas', [
+                'code' => $response['code'],
+                'message' => $response['message'] ?? 'Sin mensaje de error'
+            ]);
+
+            throw new ERetailException($response['message'] ?? 'Error al actualizar etiquetas');
+
+        } catch (GuzzleException $e) {
+            Log::error('Error HTTP actualizando etiquetas', [
+                'message' => $e->getMessage(),
+                'code' => $e->getCode()
+            ]);
+            throw new ERetailException('Error al solicitar actualización de etiquetas: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Actualizar todas las etiquetas de una tienda
+     */
+    public function refreshAllStoreTags($shopCode = null)
+    {
+        $shopCode = $shopCode ?? $this->config['default_shop_code'];
+
+        try {
+            Log::info('Solicitando actualización de toda la tienda', [
+                'shop_code' => $shopCode
+            ]);
+
+            $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
+                'json' => [
+                    'shopCode' => $shopCode,
+                    'refreshType' => 3, // 3 = Toda la tienda
+                    'refreshName' => '',
+                    'tags' => []
+                ]
+            ]);
+
+            if ($response['code'] === 0) {
+                return [
+                    'success' => true,
+                    'message' => $response['message'] ?? 'Actualización de tienda iniciada'
+                ];
+            }
+
+            throw new ERetailException($response['message'] ?? 'Error al actualizar tienda');
+
+        } catch (GuzzleException $e) {
+            Log::error('Error actualizando tienda completa: ' . $e->getMessage());
+            throw new ERetailException('Error al actualizar tienda: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Hacer parpadear etiquetas específicas (para localización)
+     */
+    public function flashTags($productCodes, $shopCode = null, $color = 'RGB', $seconds = 10)
+    {
+        $shopCode = $shopCode ?? $this->config['default_shop_code'];
+
+        try {
+            Log::info('Haciendo parpadear etiquetas', [
+                'productos_count' => count($productCodes),
+                'color' => $color,
+                'duracion' => $seconds
+            ]);
+
+            $response = $this->authenticatedRequest('POST', '/api/esl/tag/led', [
+                'json' => [
+                    'shopCode' => $shopCode,
+                    'rgb' => $color, // R=Rojo, G=Verde, B=Azul, RGB=Todos
+                    'times' => $seconds,
+                    'idList' => $productCodes,
+                    'ledType' => 0 // 0 = Por código de producto, 1 = Por ID de etiqueta
+                ]
+            ]);
+
+            if ($response['code'] === 0) {
+                return [
+                    'success' => true,
+                    'message' => 'Etiquetas parpadeando'
+                ];
+            }
+
+            throw new ERetailException($response['message'] ?? 'Error al hacer parpadear etiquetas');
+
+        } catch (GuzzleException $e) {
+            Log::error('Error haciendo parpadear etiquetas: ' . $e->getMessage());
+            throw new ERetailException('Error: ' . $e->getMessage());
         }
     }
 }
