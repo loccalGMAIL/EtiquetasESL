@@ -60,6 +60,24 @@ return new class extends Migration {
                 'value' => '2',
                 'description' => 'Número de filas a omitir al inicio del Excel (0 = no omitir)',
                 'type' => 'integer'
+            ],
+            [
+                'key' => 'auto_refresh_tags',
+                'value' => 'true',
+                'description' => 'Actualizar etiquetas automáticamente después de procesar productos',
+                'type' => 'boolean'
+            ],
+            [
+                'key' => 'refresh_method',
+                'value' => 'specific',
+                'description' => 'Método de actualización: specific (solo productos procesados) o store (toda la tienda)',
+                'type' => 'string'
+            ],
+            [
+                'key' => 'flash_updated_tags',
+                'value' => 'false',
+                'description' => 'Hacer parpadear las etiquetas actualizadas para indicar cambios',
+                'type' => 'boolean'
             ]
         ];
 

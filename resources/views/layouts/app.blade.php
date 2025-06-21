@@ -21,7 +21,7 @@
                     <div class="flex-shrink-0 flex items-center">
                         <h1 class="text-xl font-bold text-gray-800">
                             <i class="fas fa-tags text-blue-600 mr-2"></i>
-                            ELS Retail Updater
+                            ESL eRetail Updater
                         </h1>
                     </div>
                     

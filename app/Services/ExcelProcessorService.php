@@ -28,223 +28,176 @@ class ExcelProcessorService
     }
 
     /**
-     * Procesar archivo Excel
-     */
-    public function processFile($filePath, $uploadId)
-    {
-        Log::info("=== INICIANDO PROCESAMIENTO ===");
-        Log::info("Upload ID: {$uploadId}");
-        Log::info("Archivo: {$filePath}");
+ * Procesar array de productos - VERSIÓN CORREGIDA
+ */
+private function processProducts($rows)
+{
+    // Log de inicio
+    Log::info("=== INICIANDO PROCESAMIENTO DE PRODUCTOS ===");
+    Log::info("Total de filas recibidas: " . count($rows));
 
-        $this->upload = Upload::find($uploadId);
+    // ✅ CONFIGURACIÓN DE FILAS A OMITIR
+    $skipRows = $this->skipRows ?? 3; // Por defecto omitir 3 filas
+    $minRows = $skipRows + 1; // Al menos 1 fila de datos
 
-        if (!$this->upload) {
-            Log::error("Upload {$uploadId} no encontrado en la base de datos");
-            throw new \Exception('Upload no encontrado');
+    if (count($rows) < $minRows) {
+        throw new \Exception("El archivo debe tener al menos {$minRows} filas ({$skipRows} de encabezado + 1 de datos)");
+    }
+
+    // ✅ OBTENER ENCABEZADOS ANTES DE ELIMINAR FILAS
+    $headerRowIndex = $skipRows - 1; // La última fila omitida contiene los encabezados
+    $headers = $this->normalizeHeaders($rows[$headerRowIndex]);
+    Log::info("Headers encontrados: " . json_encode($headers));
+
+    // Validar que existan los campos necesarios
+    $this->validateHeaders($headers);
+
+    // Obtener índices de columnas
+    $codBarrasIndex = array_search('cod_barras', $headers);
+    $descripcionIndex = array_search('descripcion', $headers);
+    $finalIndex = array_search('final', $headers);
+    $fecUlMoIndex = array_search('fec_ul_mo', $headers);
+
+    Log::info("Índices de columnas", [
+        'cod_barras' => $codBarrasIndex,
+        'descripcion' => $descripcionIndex,
+        'final' => $finalIndex,
+        'fec_ul_mo' => $fecUlMoIndex
+    ]);
+
+    // ✅ ELIMINAR LAS FILAS DE ENCABEZADO
+    for ($i = 0; $i < $skipRows; $i++) {
+        unset($rows[$i]);
+    }
+
+    // ✅ REINDEXAR EL ARRAY (IMPORTANTE!)
+    $rows = array_values($rows);
+
+    // 🔥 NUEVA CORRECCIÓN: FILTRAR FILAS VACÍAS ANTES DE CONTAR
+    $validRows = [];
+    foreach ($rows as $index => $row) {
+        if (!$this->isEmptyRow($row)) {
+            $validRows[] = $row;
+        } else {
+            Log::debug("Fila " . ($index + $skipRows + 1) . " vacía detectada y excluida del conteo");
         }
+    }
+
+    // ✅ AHORA SÍ CONTAR SOLO LAS FILAS VÁLIDAS
+    $totalProducts = count($validRows);
+    $this->upload->update(['total_products' => $totalProducts]);
+
+    Log::info("Configuración de procesamiento", [
+        'filas_omitidas' => $skipRows,
+        'filas_totales_despues_encabezados' => count($rows),
+        'filas_vacias_filtradas' => count($rows) - count($validRows),
+        'filas_validas_a_procesar' => $totalProducts,
+        'fila_encabezados_original' => $headerRowIndex + 1
+    ]);
+
+    Log::info("Total de productos a procesar: {$totalProducts}");
+
+    if ($totalProducts === 0) {
+        throw new \Exception('No se encontraron productos válidos para procesar');
+    }
+
+    // ✅ AUTENTICACIÓN CON eRETAIL
+    Log::info("Autenticando con eRetail...");
+    try {
+        $this->eRetailService->login();
+        Log::info("Autenticación exitosa con eRetail");
+    } catch (\Exception $e) {
+        Log::error("Error de autenticación con eRetail: " . $e->getMessage());
+        throw new \Exception("No se pudo conectar con eRetail: " . $e->getMessage());
+    }
+
+    $productsBatch = [];
+    $processedCount = 0;
+
+    // ✅ PROCESAR CADA FILA VÁLIDA (ya filtradas las vacías)
+    foreach ($validRows as $index => $row) {
+        $rowNumber = $index + $skipRows + 1; // Número real de fila en Excel
 
         try {
-            // Marcar como procesando
-            $this->upload->update(['status' => 'processing']);
-            Log::info("Estado actualizado a 'processing'");
+            // 🔥 YA NO ES NECESARIO VERIFICAR FILAS VACÍAS AQUÍ
+            // porque ya fueron filtradas arriba
 
-            // Leer archivo Excel
-            $fullPath = storage_path('app/private/' . $filePath);
-            Log::info("Ruta completa del archivo: {$fullPath}");
+            // Extraer datos
+            $productData = [
+                'cod_barras' => $this->cleanValue($row[$codBarrasIndex] ?? ''),
+                'descripcion' => $this->cleanValue($row[$descripcionIndex] ?? ''),
+                'precio_final' => $this->parsePrice($row[$finalIndex] ?? 0),
+                'fec_ul_mo' => $this->parseDate($row[$fecUlMoIndex] ?? null)
+            ];
 
-            if (!file_exists($fullPath)) {
-                Log::error("Archivo no existe en: {$fullPath}");
-                throw new \Exception('Archivo no encontrado: ' . $fullPath);
+            // Log de los primeros productos para debug
+            if ($processedCount < 3) {
+                Log::info("Fila {$rowNumber} - Producto: " . json_encode($productData));
             }
 
-            Log::info("Cargando archivo Excel...");
-            $spreadsheet = IOFactory::load($fullPath);
-            $worksheet = $spreadsheet->getActiveSheet();
-            $data = $worksheet->toArray(null, true, true, false);
+            // Validar datos del producto
+            $this->validateProduct($productData);
 
-            Log::info("Archivo cargado. Total de filas: " . count($data));
+            // Calcular precio con descuento
+            $productData['precio_descuento'] = round($productData['precio_final'] * (1 - $this->discountPercentage / 100), 2);
+            $productData['precio_original'] = $productData['precio_final'];
 
-            if (empty($data)) {
-                throw new \Exception('El archivo está vacío');
+            if ($processedCount < 3) {
+                Log::info("Precios - Original: {$productData['precio_original']}, Con descuento: {$productData['precio_descuento']}");
             }
 
-            // Procesar productos
-            $this->processProducts($data);
+            // Procesar producto
+            $this->processSingleProduct($productData);
 
-            // Marcar como completado
-            $this->upload->update(['status' => 'completed']);
-            Log::info("=== PROCESAMIENTO COMPLETADO ===");
+            // Agregar al batch para eRetail
+            $productsBatch[] = $productData;
+
+            // Procesar en lotes de 50
+            if (count($productsBatch) >= 50) {
+                Log::info("Enviando batch de " . count($productsBatch) . " productos a eRetail");
+                $this->sendBatchToERetail($productsBatch);
+                $productsBatch = [];
+            }
+
+            $processedCount++;
+
+            // Actualizar progreso cada 10 productos
+            if ($processedCount % 10 == 0) {
+                $this->upload->update(['processed_products' => $processedCount]);
+                Log::info("Progreso: {$processedCount}/{$totalProducts} productos procesados");
+            }
 
         } catch (\Exception $e) {
-            Log::error("=== ERROR EN PROCESAMIENTO ===");
-            Log::error("Mensaje: " . $e->getMessage());
-            Log::error("Trace: " . $e->getTraceAsString());
+            Log::warning("Error procesando fila {$rowNumber}: " . $e->getMessage());
 
-            $this->upload->update([
+            // Registrar error
+            ProductUpdateLog::create([
+                'upload_id' => $this->upload->id,
+                'cod_barras' => $productData['cod_barras'] ?? 'DESCONOCIDO',
+                'descripcion' => $productData['descripcion'] ?? '',
+                'precio_final' => $productData['precio_final'] ?? 0,
+                'precio_calculado' => $productData['precio_descuento'] ?? 0,
+                'fec_ul_mo' => $productData['fec_ul_mo'] ?? null,
+                'action' => 'skipped',
                 'status' => 'failed',
                 'error_message' => $e->getMessage()
             ]);
 
-            throw $e;
+            $this->upload->increment('failed_products');
         }
     }
 
-    /**
-     * Procesar array de productos
-     */
-    private function processProducts($rows)
-    {
-        // Log de inicio
-        Log::info("=== INICIANDO PROCESAMIENTO DE PRODUCTOS ===");
-        Log::info("Total de filas recibidas: " . count($rows));
-
-        // ✅ CONFIGURACIÓN DE FILAS A OMITIR
-        $skipRows = $this->skipRows ?? 3; // Por defecto omitir 3 filas
-        $minRows = $skipRows + 1; // Al menos 1 fila de datos
-
-        if (count($rows) < $minRows) {
-            throw new \Exception("El archivo debe tener al menos {$minRows} filas ({$skipRows} de encabezado + 1 de datos)");
-        }
-
-        // ✅ OBTENER ENCABEZADOS ANTES DE ELIMINAR FILAS
-        $headerRowIndex = $skipRows - 1; // La última fila omitida contiene los encabezados
-        $headers = $this->normalizeHeaders($rows[$headerRowIndex]);
-        Log::info("Headers encontrados: " . json_encode($headers));
-
-        // Validar que existan los campos necesarios
-        $this->validateHeaders($headers);
-
-        // Obtener índices de columnas
-        $codBarrasIndex = array_search('cod_barras', $headers);
-        $descripcionIndex = array_search('descripcion', $headers);
-        $finalIndex = array_search('final', $headers);
-        $fecUlMoIndex = array_search('fec_ul_mo', $headers);
-
-        Log::info("Índices de columnas", [
-            'cod_barras' => $codBarrasIndex,
-            'descripcion' => $descripcionIndex,
-            'final' => $finalIndex,
-            'fec_ul_mo' => $fecUlMoIndex
-        ]);
-
-        // ✅ ELIMINAR LAS FILAS DE ENCABEZADO
-        for ($i = 0; $i < $skipRows; $i++) {
-            unset($rows[$i]);
-        }
-
-        // ✅ REINDEXAR EL ARRAY (IMPORTANTE!)
-        $rows = array_values($rows);
-
-        Log::info("Configuración de procesamiento", [
-            'filas_omitidas' => $skipRows,
-            'filas_datos' => count($rows),
-            'fila_encabezados_original' => $headerRowIndex + 1 // +1 para numeración Excel
-        ]);
-
-        $totalProducts = count($rows);
-        $this->upload->update(['total_products' => $totalProducts]);
-        Log::info("Total de productos a procesar: {$totalProducts}");
-
-        // ✅ AUTENTICACIÓN CON eRETAIL
-        Log::info("Autenticando con eRetail...");
-        try {
-            $this->eRetailService->login();
-            Log::info("Autenticación exitosa con eRetail");
-        } catch (\Exception $e) {
-            Log::error("Error de autenticación con eRetail: " . $e->getMessage());
-            throw new \Exception("No se pudo conectar con eRetail: " . $e->getMessage());
-        }
-
-        $productsBatch = [];
-        $processedCount = 0;
-
-        // ✅ PROCESAR CADA FILA DE DATOS
-        foreach ($rows as $index => $row) {
-            $rowNumber = $index + $skipRows + 1; // Número real de fila en Excel
-
-            try {
-                // Validar fila
-                if ($this->isEmptyRow($row)) {
-                    Log::debug("Fila {$rowNumber} vacía, omitiendo");
-                    continue;
-                }
-
-                // Extraer datos
-                $productData = [
-                    'cod_barras' => $this->cleanValue($row[$codBarrasIndex] ?? ''),
-                    'descripcion' => $this->cleanValue($row[$descripcionIndex] ?? ''),
-                    'precio_final' => $this->parsePrice($row[$finalIndex] ?? 0),
-                    'fec_ul_mo' => $this->parseDate($row[$fecUlMoIndex] ?? null)
-                ];
-
-                // Log de los primeros productos para debug
-                if ($processedCount < 3) {
-                    Log::info("Fila {$rowNumber} - Producto: " . json_encode($productData));
-                }
-
-                // Validar datos del producto
-                $this->validateProduct($productData);
-
-                // Calcular precio con descuento
-                $productData['precio_descuento'] = round($productData['precio_final'] * (1 - $this->discountPercentage / 100), 2);
-                $productData['precio_original'] = $productData['precio_final'];
-
-                if ($processedCount < 3) {
-                    Log::info("Precios - Original: {$productData['precio_original']}, Con descuento: {$productData['precio_descuento']}");
-                }
-
-                // Procesar producto
-                $this->processSingleProduct($productData);
-
-                // Agregar al batch para eRetail
-                $productsBatch[] = $productData;
-
-                // Procesar en lotes de 50
-                if (count($productsBatch) >= 50) {
-                    Log::info("Enviando batch de " . count($productsBatch) . " productos a eRetail");
-                    $this->sendBatchToERetail($productsBatch);
-                    $productsBatch = [];
-                }
-
-                $processedCount++;
-
-                // Actualizar progreso cada 10 productos
-                if ($processedCount % 10 == 0) {
-                    $this->upload->update(['processed_products' => $processedCount]);
-                    Log::info("Progreso: {$processedCount}/{$totalProducts} productos procesados");
-                }
-
-            } catch (\Exception $e) {
-                Log::warning("Error procesando fila {$rowNumber}: " . $e->getMessage());
-
-                // Registrar error
-                ProductUpdateLog::create([
-                    'upload_id' => $this->upload->id,
-                    'cod_barras' => $productData['cod_barras'] ?? 'DESCONOCIDO',
-                    'descripcion' => $productData['descripcion'] ?? '',
-                    'precio_final' => $productData['precio_final'] ?? 0,
-                    'precio_calculado' => $productData['precio_descuento'] ?? 0,
-                    'fec_ul_mo' => $productData['fec_ul_mo'] ?? null,
-                    'action' => 'skipped',
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage()
-                ]);
-
-                $this->upload->increment('failed_products');
-            }
-        }
-
-        // Enviar últimos productos
-        if (!empty($productsBatch)) {
-            Log::info("Enviando último batch de " . count($productsBatch) . " productos a eRetail");
-            $this->sendBatchToERetail($productsBatch);
-        }
-
-        // Actualizar conteo final
-        $this->upload->update(['processed_products' => $processedCount]);
-        Log::info("=== PROCESAMIENTO COMPLETADO ===");
-        Log::info("Total procesados: {$processedCount} de {$totalProducts}");
+    // Enviar últimos productos
+    if (!empty($productsBatch)) {
+        Log::info("Enviando último batch de " . count($productsBatch) . " productos a eRetail");
+        $this->sendBatchToERetail($productsBatch);
     }
+
+    // Actualizar conteo final
+    $this->upload->update(['processed_products' => $processedCount]);
+    Log::info("=== PROCESAMIENTO COMPLETADO ===");
+    Log::info("Total procesados: {$processedCount} de {$totalProducts}");
+}
 
     /**
      * Procesar un producto individual
@@ -387,20 +340,6 @@ class ExcelProcessorService
                 'trace' => $e->getTraceAsString()
             ]);
 
-
-            // Marcar productos como fallidos
-            // foreach ($products as $product) {
-            //     ProductUpdateLog::where('upload_id', $this->upload->id)
-            //         ->where('cod_barras', $product['cod_barras'])
-            //         ->where('status', 'pending')
-            //         ->update([
-            //             'status' => 'failed',
-            //             'error_message' => $e->getMessage()
-            //         ]);
-
-            //     $this->upload->increment('failed_products');
-            // }
-
             throw $e; // Re-lanzar para que se marque el upload como fallido
         }
     }
@@ -459,14 +398,31 @@ class ExcelProcessorService
     }
 
     /**
-     * Verificar si una fila está vacía
-     */
-    private function isEmptyRow($row)
-    {
-        return empty(array_filter($row, function ($value) {
-            return !is_null($value) && $value !== '';
-        }));
+ * ✅ MEJORAR LA FUNCIÓN DE DETECCIÓN DE FILAS VACÍAS
+ */
+private function isEmptyRow($row)
+{
+    // Si la fila es null o no es array, está vacía
+    if (!is_array($row) || empty($row)) {
+        return true;
     }
+
+    // Filtrar valores que no sean null, vacíos o solo espacios
+    $nonEmptyValues = array_filter($row, function ($value) {
+        if (is_null($value)) {
+            return false;
+        }
+        
+        // Convertir a string y limpiar espacios
+        $cleanValue = trim(strval($value));
+        
+        // Considerar vacío si es string vacío o solo contiene espacios/caracteres especiales
+        return $cleanValue !== '' && $cleanValue !== '0' && !preg_match('/^[\s\r\n\t]*$/', $cleanValue);
+    });
+
+    // Si no hay valores válidos, la fila está vacía
+    return empty($nonEmptyValues);
+}
 
     /**
      * Limpiar valor
@@ -581,4 +537,191 @@ class ExcelProcessorService
             throw new \Exception('Fecha de última modificación inválida');
         }
     }
+
+    /**
+     * Procesar archivo Excel - VERSIÓN CON AUTO-ACTUALIZACIÓN
+     */
+    public function processFile($filePath, $uploadId)
+    {
+        $this->upload = Upload::find($uploadId);
+
+        if (!$this->upload) {
+            throw new \Exception('Upload no encontrado');
+        }
+
+        try {
+            // Marcar como procesando
+            $this->upload->update(['status' => 'processing']);
+
+            // Leer archivo Excel usando PhpSpreadsheet
+            // $fullPath = $filePath;
+            $fullPath = storage_path('app/private/' . $filePath);
+
+            if (!file_exists($fullPath)) {
+                throw new \Exception('Archivo no encontrado: ' . $fullPath);
+            }
+
+            $spreadsheet = IOFactory::load($fullPath);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $data = $worksheet->toArray(null, true, true, false);
+
+            if (empty($data)) {
+                throw new \Exception('El archivo está vacío');
+            }
+
+            // Procesar productos
+            $this->processProducts($data);
+
+            // ✅ NUEVO: Actualizar etiquetas automáticamente
+            $this->autoRefreshTags();
+
+            // Marcar como completado
+            $this->upload->update(['status' => 'completed']);
+
+            Log::info("Procesamiento completado para upload {$uploadId}");
+
+        } catch (\Exception $e) {
+            Log::error("Error procesando archivo: " . $e->getMessage());
+
+            $this->upload->update([
+                'status' => 'failed',
+                'error_message' => $e->getMessage()
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * ✅ NUEVA FUNCIÓN: Actualizar etiquetas automáticamente después del procesamiento
+     */
+    private function autoRefreshTags()
+    {
+        // Verificar si está habilitada la actualización automática
+        if (!AppSetting::get('auto_refresh_tags', true)) {
+            Log::info("Actualización automática de etiquetas deshabilitada en configuración");
+            return;
+        }
+
+        try {
+            Log::info("=== INICIANDO ACTUALIZACIÓN AUTOMÁTICA DE ETIQUETAS ===");
+
+            // Obtener todos los productos procesados exitosamente
+            $successfulProducts = ProductUpdateLog::where('upload_id', $this->upload->id)
+                ->where('status', 'success')
+                ->whereIn('action', ['created', 'updated'])
+                ->pluck('cod_barras')
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if (empty($successfulProducts)) {
+                Log::info("No hay productos exitosos para actualizar etiquetas");
+                return;
+            }
+
+            Log::info("Productos a actualizar", [
+                'cantidad' => count($successfulProducts),
+                'shop_code' => $this->upload->shop_code,
+                'primeros_5' => array_slice($successfulProducts, 0, 5)
+            ]);
+
+            $refreshMethod = AppSetting::get('refresh_method', 'specific');
+
+            if ($refreshMethod === 'specific') {
+                // Actualizar solo productos procesados (RECOMENDADO)
+                $result = $this->eRetailService->refreshSpecificTags($successfulProducts, $this->upload->shop_code);
+                Log::info("Método: Actualización específica de " . count($successfulProducts) . " productos");
+            } else {
+                // Actualizar toda la tienda
+                $result = $this->eRetailService->refreshAllStoreTags($this->upload->shop_code);
+                Log::info("Método: Actualización de toda la tienda");
+            }
+
+            if ($result['success']) {
+                Log::info("✅ Actualización de etiquetas iniciada correctamente", [
+                    'message' => $result['message']
+                ]);
+
+                // Opcional: Hacer parpadear etiquetas para indicar actualización
+                if (AppSetting::get('flash_updated_tags', false)) {
+                    try {
+                        $this->eRetailService->flashTags($successfulProducts, $this->upload->shop_code, 'G', 3);
+                        Log::info("💡 Etiquetas configuradas para parpadear en verde por 3 segundos");
+                    } catch (\Exception $e) {
+                        Log::warning("Error configurando parpadeo de etiquetas: " . $e->getMessage());
+                    }
+                }
+
+                // Registrar estadística de actualización
+                Log::info("📊 Resumen de actualización automática", [
+                    'upload_id' => $this->upload->id,
+                    'productos_creados' => $this->upload->created_products,
+                    'productos_actualizados' => $this->upload->updated_products,
+                    'etiquetas_a_actualizar' => count($successfulProducts),
+                    'metodo_actualizacion' => $refreshMethod,
+                    'parpadeo_habilitado' => AppSetting::get('flash_updated_tags', false)
+                ]);
+
+            } else {
+                Log::error("❌ Error en actualización de etiquetas", [
+                    'message' => $result['message'] ?? 'Sin mensaje'
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error("💥 Error en actualización automática de etiquetas: " . $e->getMessage(), [
+                'upload_id' => $this->upload->id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            // No lanzar excepción para no afectar el procesamiento principal
+        }
+    }
+
+    /**
+     * Actualizar etiquetas automáticamente después del procesamiento
+     */
+    // private function autoRefreshTags()
+    // {
+    //     try {
+    //         Log::info("=== INICIANDO ACTUALIZACIÓN AUTOMÁTICA DE ETIQUETAS ===");
+
+    //         // Obtener todos los productos procesados exitosamente
+    //         $successfulProducts = ProductUpdateLog::where('upload_id', $this->upload->id)
+    //             ->where('status', 'success')
+    //             ->whereIn('action', ['created', 'updated'])
+    //             ->pluck('cod_barras')
+    //             ->unique()
+    //             ->values()
+    //             ->toArray();
+
+    //         if (empty($successfulProducts)) {
+    //             Log::info("No hay productos exitosos para actualizar etiquetas");
+    //             return;
+    //         }
+
+    //         Log::info("Productos a actualizar", [
+    //             'cantidad' => count($successfulProducts),
+    //             'primeros_5' => array_slice($successfulProducts, 0, 5)
+    //         ]);
+
+    //         // Opción A: Actualizar etiquetas específicas (RECOMENDADO)
+    //         $result = $this->eRetailService->refreshSpecificTags($successfulProducts, $this->upload->shop_code);
+
+    //         if ($result['success']) {
+    //             Log::info("✅ Actualización de etiquetas iniciada correctamente");
+
+    //             // Opcional: Hacer parpadear las etiquetas para indicar actualización
+    //             // $this->eRetailService->flashTags($successfulProducts, $this->upload->shop_code, 'G', 5);
+    //         }
+
+    //         // Opción B: Actualizar toda la tienda (menos eficiente pero más seguro)
+    //         // $this->eRetailService->refreshAllStoreTags($this->upload->shop_code);
+
+    //     } catch (\Exception $e) {
+    //         Log::error("Error en actualización automática de etiquetas: " . $e->getMessage());
+    //         // No lanzar excepción para no afectar el procesamiento principal
+    //     }
+    // }
+
 }
