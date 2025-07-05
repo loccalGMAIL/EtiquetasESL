@@ -14,24 +14,34 @@
                   x-data="uploadForm()">
                 @csrf
                 
-                <!-- Instrucciones -->
-                <div class="mb-6 bg-blue-50 border-l-4 border-blue-400 p-4">
-                    <div class="flex">
-                        <div class="flex-shrink-0">
-                            <i class="fas fa-info-circle text-blue-400"></i>
-                        </div>
-                        <div class="ml-3">
-                            <p class="text-sm text-blue-700">
-                                El archivo Excel debe contener las columnas:
-                                <strong>Cod.Barras</strong>, <strong>Descripción</strong>, 
-                                <strong>Final ($)</strong> y <strong>FecUlMo</strong>
-                            </p>
-                            <p class="text-sm text-blue-700 mt-1">
-                                Se aplicará un descuento del {{ \App\Models\AppSetting::get('discount_percentage', 12) }}% automáticamente
-                            </p>
-                        </div>
-                    </div>
-                </div>
+<!-- Instrucciones -->
+<div class="mb-6 bg-blue-50 border-l-4 border-blue-400 p-4">
+    <div class="flex">
+        <div class="flex-shrink-0">
+            <i class="fas fa-info-circle text-blue-400"></i>
+        </div>
+        <div class="ml-3">
+            <p class="text-sm text-blue-700">
+                El archivo Excel debe contener las columnas:
+                <strong>Cód.Barras</strong>, <strong>Código</strong>, <strong>Descripción</strong>, 
+                <strong>Fina ($)</strong> y <strong>UltModif</strong>
+            </p>
+            <p class="text-sm text-blue-700 mt-1">
+                Se aplicará un descuento del {{ \App\Models\AppSetting::get('discount_percentage', 12) }}% automáticamente
+            </p>
+            <div class="mt-2 text-xs text-blue-600">
+                <p><strong>Estructura esperada:</strong></p>
+                <ul class="list-disc list-inside ml-2 space-y-1">
+                    <li><strong>Cód.Barras:</strong> Código de barras del producto</li>
+                    <li><strong>Código:</strong> Código interno del sistema de facturación</li>
+                    <li><strong>Descripción:</strong> Nombre del producto</li>
+                    <li><strong>Fina ($):</strong> Precio final del producto</li>
+                    <li><strong>UltModif:</strong> Fecha de última modificación</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
                 
                 <!-- Shop Code -->
                 <div class="mb-6">

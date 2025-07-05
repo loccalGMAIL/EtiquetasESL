@@ -11,6 +11,7 @@ class ProductLastUpdate extends Model
 
     protected $fillable = [
         'cod_barras',
+        'codigo',
         'last_update_date',
         'last_price',
         'last_description',
