@@ -12,6 +12,7 @@ class ProductUpdateLog extends Model
     protected $fillable = [
         'upload_id',
         'cod_barras',
+        'codigo',
         'descripcion',
         'precio_final',
         'precio_calculado',

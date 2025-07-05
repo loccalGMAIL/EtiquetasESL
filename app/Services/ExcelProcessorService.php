@@ -28,176 +28,176 @@ class ExcelProcessorService
     }
 
     /**
- * Procesar array de productos - VERSIÓN CORREGIDA
- */
-private function processProducts($rows)
-{
-    // Log de inicio
-    Log::info("=== INICIANDO PROCESAMIENTO DE PRODUCTOS ===");
-    Log::info("Total de filas recibidas: " . count($rows));
+     * Procesar array de productos - VERSIÓN CORREGIDA
+     */
+    private function processProducts($rows)
+    {
+        // Log de inicio
+        Log::info("=== INICIANDO PROCESAMIENTO DE PRODUCTOS ===");
+        Log::info("Total de filas recibidas: " . count($rows));
 
-    // ✅ CONFIGURACIÓN DE FILAS A OMITIR
-    $skipRows = $this->skipRows ?? 3; // Por defecto omitir 3 filas
-    $minRows = $skipRows + 1; // Al menos 1 fila de datos
+        // ✅ CONFIGURACIÓN DE FILAS A OMITIR
+        $skipRows = $this->skipRows ?? 3; // Por defecto omitir 3 filas
+        $minRows = $skipRows + 1; // Al menos 1 fila de datos
 
-    if (count($rows) < $minRows) {
-        throw new \Exception("El archivo debe tener al menos {$minRows} filas ({$skipRows} de encabezado + 1 de datos)");
-    }
-
-    // ✅ OBTENER ENCABEZADOS ANTES DE ELIMINAR FILAS
-    $headerRowIndex = $skipRows - 1; // La última fila omitida contiene los encabezados
-    $headers = $this->normalizeHeaders($rows[$headerRowIndex]);
-    Log::info("Headers encontrados: " . json_encode($headers));
-
-    // Validar que existan los campos necesarios
-    $this->validateHeaders($headers);
-
-    // Obtener índices de columnas
-    $codBarrasIndex = array_search('cod_barras', $headers);
-    $descripcionIndex = array_search('descripcion', $headers);
-    $finalIndex = array_search('final', $headers);
-    $fecUlMoIndex = array_search('fec_ul_mo', $headers);
-
-    Log::info("Índices de columnas", [
-        'cod_barras' => $codBarrasIndex,
-        'descripcion' => $descripcionIndex,
-        'final' => $finalIndex,
-        'fec_ul_mo' => $fecUlMoIndex
-    ]);
-
-    // ✅ ELIMINAR LAS FILAS DE ENCABEZADO
-    for ($i = 0; $i < $skipRows; $i++) {
-        unset($rows[$i]);
-    }
-
-    // ✅ REINDEXAR EL ARRAY (IMPORTANTE!)
-    $rows = array_values($rows);
-
-    // 🔥 NUEVA CORRECCIÓN: FILTRAR FILAS VACÍAS ANTES DE CONTAR
-    $validRows = [];
-    foreach ($rows as $index => $row) {
-        if (!$this->isEmptyRow($row)) {
-            $validRows[] = $row;
-        } else {
-            Log::debug("Fila " . ($index + $skipRows + 1) . " vacía detectada y excluida del conteo");
+        if (count($rows) < $minRows) {
+            throw new \Exception("El archivo debe tener al menos {$minRows} filas ({$skipRows} de encabezado + 1 de datos)");
         }
-    }
 
-    // ✅ AHORA SÍ CONTAR SOLO LAS FILAS VÁLIDAS
-    $totalProducts = count($validRows);
-    $this->upload->update(['total_products' => $totalProducts]);
+        // ✅ OBTENER ENCABEZADOS ANTES DE ELIMINAR FILAS
+        $headerRowIndex = $skipRows - 1; // La última fila omitida contiene los encabezados
+        $headers = $this->normalizeHeaders($rows[$headerRowIndex]);
+        Log::info("Headers encontrados: " . json_encode($headers));
 
-    Log::info("Configuración de procesamiento", [
-        'filas_omitidas' => $skipRows,
-        'filas_totales_despues_encabezados' => count($rows),
-        'filas_vacias_filtradas' => count($rows) - count($validRows),
-        'filas_validas_a_procesar' => $totalProducts,
-        'fila_encabezados_original' => $headerRowIndex + 1
-    ]);
+        // Validar que existan los campos necesarios
+        $this->validateHeaders($headers);
 
-    Log::info("Total de productos a procesar: {$totalProducts}");
+        // Obtener índices de columnas
+        $codBarrasIndex = array_search('cod_barras', $headers);
+        $codigoIndex = array_search('codigo', $headers); // Nuevo: código interno
+        $descripcionIndex = array_search('descripcion', $headers);
+        $finalIndex = array_search('final', $headers);
+        $fecUlMoIndex = array_search('fec_ul_mo', $headers);
 
-    if ($totalProducts === 0) {
-        throw new \Exception('No se encontraron productos válidos para procesar');
-    }
+        Log::info("Índices de columnas", [
+            'cod_barras' => $codBarrasIndex,
+            'codigo' => $codigoIndex, // Nuevo: código interno
+            'descripcion' => $descripcionIndex,
+            'final' => $finalIndex,
+            'fec_ul_mo' => $fecUlMoIndex
+        ]);
 
-    // ✅ AUTENTICACIÓN CON eRETAIL
-    Log::info("Autenticando con eRetail...");
-    try {
-        $this->eRetailService->login();
-        Log::info("Autenticación exitosa con eRetail");
-    } catch (\Exception $e) {
-        Log::error("Error de autenticación con eRetail: " . $e->getMessage());
-        throw new \Exception("No se pudo conectar con eRetail: " . $e->getMessage());
-    }
+        // ✅ ELIMINAR LAS FILAS DE ENCABEZADO
+        for ($i = 0; $i < $skipRows; $i++) {
+            unset($rows[$i]);
+        }
 
-    $productsBatch = [];
-    $processedCount = 0;
+        // ✅ REINDEXAR EL ARRAY (IMPORTANTE!)
+        $rows = array_values($rows);
 
-    // ✅ PROCESAR CADA FILA VÁLIDA (ya filtradas las vacías)
-    foreach ($validRows as $index => $row) {
-        $rowNumber = $index + $skipRows + 1; // Número real de fila en Excel
+        // 🔥 NUEVA CORRECCIÓN: FILTRAR FILAS VACÍAS ANTES DE CONTAR
+        $validRows = [];
+        foreach ($rows as $index => $row) {
+            if (!$this->isEmptyRow($row)) {
+                $validRows[] = $row;
+            } else {
+                Log::debug("Fila " . ($index + $skipRows + 1) . " vacía detectada y excluida del conteo");
+            }
+        }
 
+        // ✅ AHORA SÍ CONTAR SOLO LAS FILAS VÁLIDAS
+        $totalProducts = count($validRows);
+        $this->upload->update(['total_products' => $totalProducts]);
+
+        Log::info("Configuración de procesamiento", [
+            'filas_omitidas' => $skipRows,
+            'filas_totales_despues_encabezados' => count($rows),
+            'filas_vacias_filtradas' => count($rows) - count($validRows),
+            'filas_validas_a_procesar' => $totalProducts,
+            'fila_encabezados_original' => $headerRowIndex + 1
+        ]);
+
+        Log::info("Total de productos a procesar: {$totalProducts}");
+
+        if ($totalProducts === 0) {
+            throw new \Exception('No se encontraron productos válidos para procesar');
+        }
+
+        // ✅ AUTENTICACIÓN CON eRETAIL
+        Log::info("Autenticando con eRetail...");
         try {
-            // 🔥 YA NO ES NECESARIO VERIFICAR FILAS VACÍAS AQUÍ
-            // porque ya fueron filtradas arriba
-
-            // Extraer datos
-            $productData = [
-                'cod_barras' => $this->cleanValue($row[$codBarrasIndex] ?? ''),
-                'descripcion' => $this->cleanValue($row[$descripcionIndex] ?? ''),
-                'precio_final' => $this->parsePrice($row[$finalIndex] ?? 0),
-                'fec_ul_mo' => $this->parseDate($row[$fecUlMoIndex] ?? null)
-            ];
-
-            // Log de los primeros productos para debug
-            if ($processedCount < 3) {
-                Log::info("Fila {$rowNumber} - Producto: " . json_encode($productData));
-            }
-
-            // Validar datos del producto
-            $this->validateProduct($productData);
-
-            // Calcular precio con descuento
-            $productData['precio_descuento'] = round($productData['precio_final'] * (1 - $this->discountPercentage / 100), 2);
-            $productData['precio_original'] = $productData['precio_final'];
-
-            if ($processedCount < 3) {
-                Log::info("Precios - Original: {$productData['precio_original']}, Con descuento: {$productData['precio_descuento']}");
-            }
-
-            // Procesar producto
-            $this->processSingleProduct($productData);
-
-            // Agregar al batch para eRetail
-            $productsBatch[] = $productData;
-
-            // Procesar en lotes de 50
-            if (count($productsBatch) >= 50) {
-                Log::info("Enviando batch de " . count($productsBatch) . " productos a eRetail");
-                $this->sendBatchToERetail($productsBatch);
-                $productsBatch = [];
-            }
-
-            $processedCount++;
-
-            // Actualizar progreso cada 10 productos
-            if ($processedCount % 10 == 0) {
-                $this->upload->update(['processed_products' => $processedCount]);
-                Log::info("Progreso: {$processedCount}/{$totalProducts} productos procesados");
-            }
-
+            $this->eRetailService->login();
+            Log::info("Autenticación exitosa con eRetail");
         } catch (\Exception $e) {
-            Log::warning("Error procesando fila {$rowNumber}: " . $e->getMessage());
-
-            // Registrar error
-            ProductUpdateLog::create([
-                'upload_id' => $this->upload->id,
-                'cod_barras' => $productData['cod_barras'] ?? 'DESCONOCIDO',
-                'descripcion' => $productData['descripcion'] ?? '',
-                'precio_final' => $productData['precio_final'] ?? 0,
-                'precio_calculado' => $productData['precio_descuento'] ?? 0,
-                'fec_ul_mo' => $productData['fec_ul_mo'] ?? null,
-                'action' => 'skipped',
-                'status' => 'failed',
-                'error_message' => $e->getMessage()
-            ]);
-
-            $this->upload->increment('failed_products');
+            Log::error("Error de autenticación con eRetail: " . $e->getMessage());
+            throw new \Exception("No se pudo conectar con eRetail: " . $e->getMessage());
         }
-    }
 
-    // Enviar últimos productos
-    if (!empty($productsBatch)) {
-        Log::info("Enviando último batch de " . count($productsBatch) . " productos a eRetail");
-        $this->sendBatchToERetail($productsBatch);
-    }
+        $productsBatch = [];
+        $processedCount = 0;
 
-    // Actualizar conteo final
-    $this->upload->update(['processed_products' => $processedCount]);
-    Log::info("=== PROCESAMIENTO COMPLETADO ===");
-    Log::info("Total procesados: {$processedCount} de {$totalProducts}");
-}
+        // ✅ PROCESAR CADA FILA VÁLIDA (ya filtradas las vacías)
+        foreach ($validRows as $index => $row) {
+            $rowNumber = $index + $skipRows + 1; // Número real de fila en Excel
+
+            try {
+                // Extraer datos
+                $productData = [
+                    'cod_barras' => $this->cleanValue($row[$codBarrasIndex] ?? ''),
+                    'codigo' => $this->cleanValue($row[$codigoIndex] ?? ''), 
+                    'descripcion' => $this->cleanValue($row[$descripcionIndex] ?? ''),
+                    'precio_final' => $this->parsePrice($row[$finalIndex] ?? 0),
+                    'fec_ul_mo' => $this->parseDate($row[$fecUlMoIndex] ?? null)
+                ];
+
+                // Log de los primeros productos para debug
+                if ($processedCount < 3) {
+                    Log::info("Fila {$rowNumber} - Producto: " . json_encode($productData));
+                }
+
+                // Validar datos del producto
+                $this->validateProduct($productData);
+
+                // Calcular precio con descuento
+                $productData['precio_descuento'] = round($productData['precio_final'] * (1 - $this->discountPercentage / 100), 2);
+                $productData['precio_original'] = $productData['precio_final'];
+
+                if ($processedCount < 3) {
+                    Log::info("Precios - Original: {$productData['precio_original']}, Con descuento: {$productData['precio_descuento']}");
+                }
+
+                // Procesar producto
+                $this->processSingleProduct($productData);
+
+                // Agregar al batch para eRetail
+                $productsBatch[] = $productData;
+
+                // Procesar en lotes de 50
+                if (count($productsBatch) >= 50) {
+                    Log::info("Enviando batch de " . count($productsBatch) . " productos a eRetail");
+                    $this->sendBatchToERetail($productsBatch);
+                    $productsBatch = [];
+                }
+
+                $processedCount++;
+
+                // Actualizar progreso cada 10 productos
+                if ($processedCount % 10 == 0) {
+                    $this->upload->update(['processed_products' => $processedCount]);
+                    Log::info("Progreso: {$processedCount}/{$totalProducts} productos procesados");
+                }
+
+            } catch (\Exception $e) {
+                Log::warning("Error procesando fila {$rowNumber}: " . $e->getMessage());
+
+                // Registrar error
+                ProductUpdateLog::create([
+                    'upload_id' => $this->upload->id,
+                    'cod_barras' => $productData['cod_barras'] ?? 'DESCONOCIDO',
+                    'descripcion' => $productData['descripcion'] ?? '',
+                    'precio_final' => $productData['precio_final'] ?? 0,
+                    'precio_calculado' => $productData['precio_descuento'] ?? 0,
+                    'fec_ul_mo' => $productData['fec_ul_mo'] ?? null,
+                    'action' => 'skipped',
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage()
+                ]);
+
+                $this->upload->increment('failed_products');
+            }
+        }
+
+        // Enviar últimos productos
+        if (!empty($productsBatch)) {
+            Log::info("Enviando último batch de " . count($productsBatch) . " productos a eRetail");
+            $this->sendBatchToERetail($productsBatch);
+        }
+
+        // Actualizar conteo final
+        $this->upload->update(['processed_products' => $processedCount]);
+        Log::info("=== PROCESAMIENTO COMPLETADO ===");
+        Log::info("Total procesados: {$processedCount} de {$totalProducts}");
+    }
 
     /**
      * Procesar un producto individual
@@ -228,6 +228,7 @@ private function processProducts($rows)
         $log = ProductUpdateLog::create([
             'upload_id' => $this->upload->id,
             'cod_barras' => $productData['cod_barras'],
+            'codigo' => $productData['codigo'],  
             'descripcion' => $productData['descripcion'],
             'precio_final' => $productData['precio_final'],
             'precio_calculado' => $productData['precio_descuento'],
@@ -263,6 +264,7 @@ private function processProducts($rows)
                 // ✅ CORRECCIÓN: Pasar precios correctos
                 $eRetailProducts[] = $this->eRetailService->buildProductData([
                     'cod_barras' => $product['cod_barras'],
+                    'codigo' => $product['codigo'],
                     'descripcion' => $product['descripcion'],
                     'precio_original' => $product['precio_final'],      // Sin descuento (mayor)
                     'precio_promocional' => $product['precio_descuento'] // Con descuento (menor)
@@ -311,6 +313,7 @@ private function processProducts($rows)
                             ProductLastUpdate::updateOrCreate(
                                 ['cod_barras' => $product['cod_barras']],
                                 [
+                                    'codigo' => $product['codigo'],
                                     'last_update_date' => $product['fec_ul_mo'],
                                     'last_price' => $product['precio_descuento'],
                                     'last_description' => $product['descripcion'],
@@ -344,85 +347,96 @@ private function processProducts($rows)
         }
     }
 
-    /**
-     * Normalizar encabezados
-     */
-    private function normalizeHeaders($headers)
-    {
-        return array_map(function ($header) {
-            // Convertir a minúsculas y remover espacios
-            $header = strtolower(trim($header));
-
-            // Mapeo de nombres conocidos
-            $mappings = [
-                'cod.barras' => 'cod_barras',
-                'cod barras' => 'cod_barras',
-                'codigo de barras' => 'cod_barras',
-                'código' => 'cod_barras',
-                'codigo' => 'cod_barras',
-                'cod_barras' => 'cod_barras',
-                'descripción' => 'descripcion',
-                'descripcion' => 'descripcion',
-                'nombre' => 'descripcion',
-                'producto' => 'descripcion',
-                'final ($)' => 'final',
-                'final($)' => 'final',
-                'precio final' => 'final',
-                'final' => 'final',
-                'precio' => 'final',
-                'feculmo' => 'fec_ul_mo',
-                'fec ul mo' => 'fec_ul_mo',
-                'fecha ultima modificacion' => 'fec_ul_mo',
-                'fecha' => 'fec_ul_mo',
-                'fec_ul_mo' => 'fec_ul_mo',
-                'fecha modificacion' => 'fec_ul_mo'
-            ];
-
-            return $mappings[$header] ?? $header;
-        }, $headers);
-    }
-
-    /**
-     * Validar encabezados requeridos
-     */
-    private function validateHeaders($headers)
-    {
-        $required = ['cod_barras', 'descripcion', 'final', 'fec_ul_mo'];
-        $missing = array_diff($required, $headers);
-
-        if (!empty($missing)) {
-            Log::error("Columnas faltantes: " . implode(', ', $missing));
-            Log::error("Columnas encontradas: " . implode(', ', $headers));
-            throw new \Exception('Faltan columnas requeridas: ' . implode(', ', $missing));
-        }
-    }
-
-    /**
- * ✅ MEJORAR LA FUNCIÓN DE DETECCIÓN DE FILAS VACÍAS
+/**
+ * Normalizar encabezados
  */
-private function isEmptyRow($row)
+private function normalizeHeaders($headers)
 {
-    // Si la fila es null o no es array, está vacía
-    if (!is_array($row) || empty($row)) {
-        return true;
-    }
+    return array_map(function ($header) {
+        // Convertir a minúsculas y remover espacios
+        $normalized = strtolower(trim($header));
 
-    // Filtrar valores que no sean null, vacíos o solo espacios
-    $nonEmptyValues = array_filter($row, function ($value) {
-        if (is_null($value)) {
-            return false;
-        }
-        
-        // Convertir a string y limpiar espacios
-        $cleanValue = trim(strval($value));
-        
-        // Considerar vacío si es string vacío o solo contiene espacios/caracteres especiales
-        return $cleanValue !== '' && $cleanValue !== '0' && !preg_match('/^[\s\r\n\t]*$/', $cleanValue);
-    });
+        // Mapeo de nombres conocidos
+        $mappings = [
+            // === CÓDIGOS DE BARRA ===
+            'cód.barras' => 'cod_barras',           // ✅ NUEVO: del archivo de producción
+            'cod.barras' => 'cod_barras',
+            'cod barras' => 'cod_barras',
+            'codigo de barras' => 'cod_barras',
+            'cod_barras' => 'cod_barras',
+            
+            // === CÓDIGO INTERNO ===
+            'código' => 'codigo',                   // ✅ NUEVO: código interno del sistema
+            'codigo' => 'codigo',
+            
+            // === DESCRIPCIÓN ===
+            'descripción' => 'descripcion',
+            'descripcion' => 'descripcion',
+            'nombre' => 'descripcion',
+            'producto' => 'descripcion',
+            
+            // === PRECIO FINAL ===
+            'fina ($)' => 'final',                  // ✅ NUEVO: del archivo de producción
+            'final ($)' => 'final',
+            'final($)' => 'final',
+            'precio final' => 'final',
+            'final' => 'final',
+            'precio' => 'final',
+            
+            // === FECHA ÚLTIMA MODIFICACIÓN ===
+            'ultmodif' => 'fec_ul_mo',              // ✅ NUEVO: del archivo de producción
+            'feculmo' => 'fec_ul_mo',
+            'fec ul mo' => 'fec_ul_mo',
+            'fecha ultima modificacion' => 'fec_ul_mo',
+            'fecha' => 'fec_ul_mo',
+            'fec_ul_mo' => 'fec_ul_mo',
+            'fecha modificacion' => 'fec_ul_mo'
+        ];
 
-    // Si no hay valores válidos, la fila está vacía
-    return empty($nonEmptyValues);
+        return $mappings[$normalized] ?? $normalized;
+    }, $headers);
 }
+
+/**
+ * Validar encabezados requeridos
+ */
+private function validateHeaders($headers)
+{
+    $required = ['cod_barras', 'codigo', 'descripcion', 'final', 'fec_ul_mo']; // ✅ Agregado 'codigo'
+    $missing = array_diff($required, $headers);
+
+    if (!empty($missing)) {
+        Log::error("Columnas faltantes: " . implode(', ', $missing));
+        Log::error("Columnas encontradas: " . implode(', ', $headers));
+        throw new \Exception('Faltan columnas requeridas: ' . implode(', ', $missing));
+    }
+}
+    /**
+     * ✅ MEJORAR LA FUNCIÓN DE DETECCIÓN DE FILAS VACÍAS
+     */
+    private function isEmptyRow($row)
+    {
+        // Si la fila es null o no es array, está vacía
+        if (!is_array($row) || empty($row)) {
+            return true;
+        }
+
+        // Filtrar valores que no sean null, vacíos o solo espacios
+        $nonEmptyValues = array_filter($row, function ($value) {
+            if (is_null($value)) {
+                return false;
+            }
+
+            // Convertir a string y limpiar espacios
+            $cleanValue = trim(strval($value));
+
+            // Considerar vacío si es string vacío o solo contiene espacios/caracteres especiales
+            return $cleanValue !== '' && $cleanValue !== '0' && !preg_match('/^[\s\r\n\t]*$/', $cleanValue);
+        });
+
+        // Si no hay valores válidos, la fila está vacía
+        return empty($nonEmptyValues);
+    }
 
     /**
      * Limpiar valor
@@ -525,6 +539,9 @@ private function isEmptyRow($row)
             throw new \Exception('Código de barras vacío');
         }
 
+        if (empty($productData['codigo'])) {                           // ✅ NUEVO
+        throw new \Exception('Código interno no puede estar vacío');
+        }
         if (empty($productData['descripcion'])) {
             throw new \Exception('Descripción vacía');
         }

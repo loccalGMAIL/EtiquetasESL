@@ -211,7 +211,7 @@ class ERetailService
                 $productInfo['cod_barras'],             // [1] Código único
                 $productInfo['descripcion'],            // [2] Nombre producto
                 $productInfo['cod_barras'],             // [3] UPC1
-                '',                                     // [4] UPC2
+                $productInfo['codigo'] ?? '',           // [4] Código interno del sistema de facturación
                 '',                                     // [5] UPC3
                 (string) $productInfo['precio_original'],     // [6] ✅ Precio original (SIN descuento)
                 (string) $productInfo['precio_promocional'],  // [7] ✅ Precio promocional (CON descuento)

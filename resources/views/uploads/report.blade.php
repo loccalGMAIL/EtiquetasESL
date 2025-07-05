@@ -76,7 +76,7 @@
                 </table>
             </div>
 
-            <!-- Productos con errores -->
+            {{-- <!-- Productos con errores -->
             @if ($logs->where('status', 'failed')->count() > 0)
                 <div class="mb-8">
                     <h2 class="text-xl font-semibold mb-4 text-red-600">Productos con Errores</h2>
@@ -112,7 +112,115 @@
                         @endif
                     </div>
                 </div>
+            @endif --}}
+
+
+            <!-- Productos con errores -->
+            @if ($logs->where('status', 'failed')->count() > 0)
+                <div class="mb-8">
+                    <h2 class="text-xl font-semibold mb-4 text-red-600">Productos con Errores</h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Código Barras
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Código Interno
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Descripción
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Error
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                @foreach ($logs->where('status', 'failed') as $log)
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-gray-900">
+                                            {{ $log->cod_barras }}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-blue-600 font-medium">
+                                            {{ $log->codigo ?? '-' }}
+                                        </td>
+                                        <td class="px-6 py-4 text-gray-900 max-w-xs">
+                                            <div class="truncate" title="{{ $log->descripcion }}">
+                                                {{ $log->descripcion }}
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-red-600 max-w-md">
+                                            <div class="break-words">
+                                                {{ $log->error_message }}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             @endif
+
+            <!-- Productos omitidos -->
+            @if ($logs->where('status', 'skipped')->count() > 0)
+                <div class="mb-8">
+                    <h2 class="text-xl font-semibold mb-4 text-yellow-600">Productos Omitidos</h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Código Barras
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Código Interno
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Descripción
+                                    </th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Razón
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                @foreach ($logs->where('status', 'skipped') as $log)
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-gray-900">
+                                            {{ $log->cod_barras }}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap font-mono text-blue-600 font-medium">
+                                            {{ $log->codigo ?? '-' }}
+                                        </td>
+                                        <td class="px-6 py-4 text-gray-900 max-w-xs">
+                                            <div class="truncate" title="{{ $log->descripcion }}">
+                                                {{ $log->descripcion }}
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-yellow-600">
+                                            {{ ucfirst(str_replace('_', ' ', $log->skip_reason ?? 'No especificada')) }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+
+
+
 
             <div class="text-center mt-8 no-print">
                 <button onclick="window.print()" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">

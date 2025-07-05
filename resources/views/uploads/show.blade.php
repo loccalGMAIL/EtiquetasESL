@@ -191,96 +191,113 @@
                     </select>
                 </div>
 
-                <!-- Tabla de logs -->
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Código
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Descripción
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Precios
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Fecha Últ. Mod.
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Acción
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Estado
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            @forelse($logs as $log)
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        {{ $log->cod_barras }}
-                                    </td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">
-                                        {{ Str::limit($log->descripcion, 50) }}
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <div>Original: ${{ number_format($log->precio_final, 2) }}</div>
-                                        <div class="text-green-600">Desc: ${{ number_format($log->precio_calculado, 2) }}
-                                        </div>
-                                        @if ($log->precio_anterior_eretail)
-                                            <div class="text-xs text-gray-400">Anterior:
-                                                ${{ number_format($log->precio_anterior_eretail, 2) }}</div>
-                                        @endif
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {{ $log->fec_ul_mo ? $log->fec_ul_mo->format('d/m/Y H:i') : '-' }}
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        @php
-                                            $actionColors = [
-                                                'created' => 'bg-green-100 text-green-800',
-                                                'updated' => 'bg-yellow-100 text-yellow-800',
-                                                'skipped' => 'bg-gray-100 text-gray-800',
-                                            ];
-                                            $actionLabels = [
-                                                'created' => 'Creado',
-                                                'updated' => 'Actualizado',
-                                                'skipped' => 'Omitido',
-                                            ];
-                                        @endphp
-                                        <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ $actionColors[$log->action] ?? 'bg-gray-100 text-gray-800' }}">
-                                            {{ $actionLabels[$log->action] ?? $log->action }}
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        @if ($log->status === 'success')
-                                            <span class="text-green-600">
-                                                <i class="fas fa-check-circle"></i> Exitoso
-                                            </span>
-                                        @elseif($log->status === 'failed')
-                                            <span class="text-red-600" title="{{ $log->error_message }}">
-                                                <i class="fas fa-times-circle"></i> Error
-                                            </span>
-                                        @else
-                                            <span class="text-gray-600">
-                                                <i class="fas fa-minus-circle"></i> {{ $log->skip_reason }}
-                                            </span>
-                                        @endif
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="6" class="px-6 py-4 text-center text-gray-500">
-                                        No hay registros
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
+<!-- Tabla de logs -->
+<div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Código Barras
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Código Interno
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Descripción
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Precios
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Fecha Últ. Mod.
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Estado
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acción
+                </th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            @forelse($logs as $log)
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                        {{ $log->cod_barras }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-600 font-medium">
+                        {{ $log->codigo ?? '-' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-900 max-w-xs truncate" title="{{ $log->descripcion }}">
+                        {{ $log->descripcion }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs text-gray-500">Original:</span>
+                                <span class="font-medium">${{ number_format($log->precio_final, 2) }}</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs text-gray-500">Descuento:</span>
+                                <span class="font-medium text-green-600">${{ number_format($log->precio_calculado, 2) }}</span>
+                            </div>
+                            @if($log->precio_anterior_eretail)
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-xs text-gray-500">Anterior:</span>
+                                    <span class="text-xs text-gray-400">${{ number_format($log->precio_anterior_eretail, 2) }}</span>
+                                </div>
+                            @endif
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {{ $log->fec_ul_mo ? $log->fec_ul_mo->format('d/m/Y H:i') : '-' }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        @php
+                            $statusColors = [
+                                'success' => 'bg-green-100 text-green-800',
+                                'failed' => 'bg-red-100 text-red-800',
+                                'skipped' => 'bg-yellow-100 text-yellow-800',
+                                'pending' => 'bg-blue-100 text-blue-800'
+                            ];
+                        @endphp
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $statusColors[$log->status] ?? 'bg-gray-100 text-gray-800' }}">
+                            {{ ucfirst($log->status) }}
+                        </span>
+                        @if($log->error_message)
+                            <div class="mt-1 text-xs text-red-600 max-w-xs truncate" title="{{ $log->error_message }}">
+                                {{ $log->error_message }}
+                            </div>
+                        @endif
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        @php
+                            $actionColors = [
+                                'created' => 'bg-green-100 text-green-800',
+                                'updated' => 'bg-blue-100 text-blue-800',
+                                'skipped' => 'bg-yellow-100 text-yellow-800'
+                            ];
+                        @endphp
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $actionColors[$log->action] ?? 'bg-gray-100 text-gray-800' }}">
+                            {{ ucfirst($log->action) }}
+                        </span>
+                        @if($log->skip_reason)
+                            <div class="mt-1 text-xs text-gray-500">
+                                {{ ucfirst(str_replace('_', ' ', $log->skip_reason)) }}
+                            </div>
+                        @endif
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="7" class="px-6 py-4 text-center text-gray-500">
+                        No hay productos para mostrar
+                    </td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
 
                 <div class="mt-4">
                     {{ $logs->links() }}
