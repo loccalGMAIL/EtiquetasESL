@@ -269,7 +269,7 @@ class ERetailService
             $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
                 'json' => [
                     'shopCode' => $shopCode,
-                    'refreshType' => 4, // 4 = Lista específica de tags
+                    'refreshType' => 3, // 4 = Lista específica de tags
                     'refreshName' => '',
                     'tags' => $productCodes
                 ]
