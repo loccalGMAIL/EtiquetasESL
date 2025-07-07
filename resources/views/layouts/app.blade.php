@@ -7,6 +7,8 @@
     <title>@yield('title', 'ELS Retail Updater')</title>
     
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <link rel="icon" type="image/png" href="{{ asset('favicon.png') }}">
+
     
     <!-- Font Awesome para iconos -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -21,7 +23,7 @@
                     <div class="flex-shrink-0 flex items-center">
                         <h1 class="text-xl font-bold text-gray-800">
                             <i class="fas fa-tags text-blue-600 mr-2"></i>
-                            ESL eRetail Updater
+                            ELS Retail Updater
                         </h1>
                     </div>
                     
@@ -32,6 +34,14 @@
                             <i class="fas fa-file-upload mr-2"></i>
                             Uploads
                         </a>
+                        
+                        <!-- ✅ Nuevo botón Usuarios -->
+                        <a href="{{ route('users.index') }}" 
+                           class="@if(request()->routeIs('users.*')) border-blue-500 text-gray-900 @else border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 @endif inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            <i class="fas fa-users mr-2"></i>
+                            Usuarios
+                        </a>
+                        
                         <a href="{{ route('settings.index') }}" 
                            class="@if(request()->routeIs('settings.*')) border-blue-500 text-gray-900 @else border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 @endif inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
                             <i class="fas fa-cog mr-2"></i>
@@ -41,7 +51,32 @@
                 </div>
                 
                 <!-- Right side -->
-                <div class="flex items-center">
+                <div class="flex items-center space-x-4">
+                    <!-- Usuario logueado -->
+                    <div class="flex items-center text-gray-600 text-sm">
+                        <div class="flex items-center mr-4">
+                            <div class="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center mr-2">
+                                <i class="fas fa-user text-blue-600 text-xs"></i>
+                            </div>
+                            <span class="font-medium">{{ auth()->user()->name }}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Logout Button -->
+                    <form method="POST" action="{{ route('logout') }}" class="inline">
+                        @csrf
+                        <button type="submit" 
+                                class="text-gray-500 hover:text-red-600 transition duration-300 p-2 rounded-lg hover:bg-red-50"
+                                title="Cerrar Sesión"
+                                onclick="return confirm('¿Estás seguro de que deseas cerrar sesión?')">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </button>
+                    </form>
+                    
+                    <!-- Separator -->
+                    <div class="border-l border-gray-300 h-6"></div>
+                    
+                    <!-- Nuevo Upload Button -->
                     <a href="{{ route('uploads.create') }}" 
                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
                         <i class="fas fa-plus mr-2"></i>

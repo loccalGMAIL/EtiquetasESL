@@ -196,7 +196,7 @@
 
                     <!-- Información de conexión (solo lectura) -->
                     <div class="mb-6 bg-gray-50 p-4 rounded-lg">
-                        <h3 class="text-sm font-medium text-gray-700 mb-3">Información de COOOONNN con eRetail</h3>
+                        <h3 class="text-sm font-medium text-gray-700 mb-3">Información de conexión con eRetail</h3>
                         <dl class="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
                             <div>
                                 <dt class="text-sm font-medium text-gray-500">URL Base</dt>
@@ -216,7 +216,7 @@
                             </div>
                         </dl>
                         <p class="mt-3 text-xs text-gray-500">
-                            * Para cambiar estos valores, editar el archivo .env
+                            * Para cambiar estos valores, se debe contactar al soporte técnico.
                         </p>
                     </div>
 
