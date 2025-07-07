@@ -90,7 +90,7 @@ class ExcelProcessorService
     }
 
     /**
-     * Procesar array de productos
+     * Procesar array de productos - VERSIÓN CORREGIDA
      */
     private function processProducts($rows)
     {
@@ -137,15 +137,33 @@ class ExcelProcessorService
         // ✅ REINDEXAR EL ARRAY (IMPORTANTE!)
         $rows = array_values($rows);
 
+        // 🔥 NUEVA CORRECCIÓN: FILTRAR FILAS VACÍAS ANTES DE CONTAR
+        $validRows = [];
+        foreach ($rows as $index => $row) {
+            if (!$this->isEmptyRow($row)) {
+                $validRows[] = $row;
+            } else {
+                Log::debug("Fila " . ($index + $skipRows + 1) . " vacía detectada y excluida del conteo");
+            }
+        }
+
+        // ✅ AHORA SÍ CONTAR SOLO LAS FILAS VÁLIDAS
+        $totalProducts = count($validRows);
+        $this->upload->update(['total_products' => $totalProducts]);
+
         Log::info("Configuración de procesamiento", [
             'filas_omitidas' => $skipRows,
-            'filas_datos' => count($rows),
-            'fila_encabezados_original' => $headerRowIndex + 1 // +1 para numeración Excel
+            'filas_totales_despues_encabezados' => count($rows),
+            'filas_vacias_filtradas' => count($rows) - count($validRows),
+            'filas_validas_a_procesar' => $totalProducts,
+            'fila_encabezados_original' => $headerRowIndex + 1
         ]);
 
-        $totalProducts = count($rows);
-        $this->upload->update(['total_products' => $totalProducts]);
         Log::info("Total de productos a procesar: {$totalProducts}");
+
+        if ($totalProducts === 0) {
+            throw new \Exception('No se encontraron productos válidos para procesar');
+        }
 
         // ✅ AUTENTICACIÓN CON eRETAIL
         Log::info("Autenticando con eRetail...");
@@ -160,17 +178,11 @@ class ExcelProcessorService
         $productsBatch = [];
         $processedCount = 0;
 
-        // ✅ PROCESAR CADA FILA DE DATOS
-        foreach ($rows as $index => $row) {
+        // ✅ PROCESAR CADA FILA VÁLIDA (ya filtradas las vacías)
+        foreach ($validRows as $index => $row) {
             $rowNumber = $index + $skipRows + 1; // Número real de fila en Excel
 
             try {
-                // Validar fila
-                if ($this->isEmptyRow($row)) {
-                    Log::debug("Fila {$rowNumber} vacía, omitiendo");
-                    continue;
-                }
-
                 // ✅ EXTRAER AMBOS CÓDIGOS
                 $codBarrasRaw = $codBarrasIndex !== false ? $this->cleanValue($row[$codBarrasIndex] ?? '') : '';
                 $codigoRaw = $codigoIndex !== false ? $this->cleanValue($row[$codigoIndex] ?? '') : '';
@@ -337,106 +349,210 @@ class ExcelProcessorService
         return $log;
     }
 
-    /**
-     * ✅ sendBatchToERetail con ambos códigos
-     */
-    private function sendBatchToERetail($products)
-    {
-        Log::info("=== ENVIANDO BATCH A ERETAIL ===");
-        Log::info("Cantidad de productos: " . count($products));
+/**
+ * ✅ MÉTODO sendBatchToERetail CON DEBUG COMPLETO
+ * Reemplazar este método en ExcelProcessorService.php
+ */
+private function sendBatchToERetail($products)
+{
+    Log::info("=== ENVIANDO BATCH A ERETAIL ===");
+    Log::info("Cantidad de productos: " . count($products));
 
-        try {
-            $eRetailProducts = [];
+    try {
+        $eRetailProducts = [];
 
-            foreach ($products as $product) {
-                // ✅ USAR EL IDENTIFICADOR PRINCIPAL PARA BUSCAR EN eRETAIL
-                $existingProduct = $this->eRetailService->findProduct($product['identificador_principal']);
+        foreach ($products as $product) {
+            // ✅ USAR EL IDENTIFICADOR PRINCIPAL PARA eRETAIL
+            $existingProduct = $this->eRetailService->findProduct($product['identificador_principal']);
 
-                // ✅ CONSTRUIR DATOS PARA eRETAIL
-                $eRetailProducts[] = $this->eRetailService->buildProductData([
-                    'cod_barras' => $product['identificador_principal'],  // Posición [1]: El identificador principal
-                    'codigo' => $product['codigo'],                       // Posición [4]: El código interno
-                    'descripcion' => $product['descripcion'],
-                    'precio_original' => $product['precio_final'],
-                    'precio_promocional' => $product['precio_descuento']
+            // ✅ CONSTRUIR DATOS PARA eRETAIL
+            $eRetailProducts[] = $this->eRetailService->buildProductData([
+                'cod_barras' => $product['identificador_principal'],  // Posición [1]: El identificador principal
+                'codigo' => $product['codigo'],                       // Posición [4]: El código interno
+                'descripcion' => $product['descripcion'],
+                'precio_original' => $product['precio_final'],
+                'precio_promocional' => $product['precio_descuento']
+            ]);
+
+            // ✅ ACTUALIZAR LOG
+            ProductUpdateLog::where('upload_id', $this->upload->id)
+                ->where('cod_barras', $product['cod_barras'])
+                ->where('status', 'pending')
+                ->update([
+                    'action' => $existingProduct ? 'updated' : 'created',
+                    'precio_anterior_eretail' => isset($existingProduct['items'][7]) ? $existingProduct['items'][7] : null
                 ]);
+        }
 
-                // ✅ ACTUALIZAR LOG
-                ProductUpdateLog::where('upload_id', $this->upload->id)
-                    ->where('cod_barras', $product['cod_barras'])
-                    ->where('status', 'pending')
-                    ->update([
-                        'action' => $existingProduct ? 'updated' : 'created',
-                        'precio_anterior_eretail' => isset($existingProduct['items'][7]) ? $existingProduct['items'][7] : null
-                    ]);
-            }
+        // ✅ AÑADIR LOG PARA DEBUG
+        Log::info('Enviando a eRetail', [
+            'productos_count' => count($eRetailProducts),
+            'sample_product' => $eRetailProducts[0] ?? null
+        ]);
 
-            // ✅ AÑADIR LOG PARA DEBUG
-            Log::info('Enviando a eRetail', [
-                'productos_count' => count($eRetailProducts),
-                'sample_product' => $eRetailProducts[0] ?? null
+        // Enviar a eRetail
+        $result = $this->eRetailService->saveProducts($eRetailProducts);
+
+        // ✅ LOG DEL RESULTADO COMPLETO
+        Log::info('=== RESPUESTA COMPLETA DE ERETAIL ===', [
+            'result_completo' => $result,
+            'success_type' => gettype($result['success'] ?? null),
+            'success_value' => $result['success'] ?? 'NO_DEFINIDO',
+            'message' => $result['message'] ?? 'Sin mensaje'
+        ]);
+
+        // ✅ DEBUG: Verificar condición de éxito
+        $isSuccess = isset($result['success']) && $result['success'] === true;
+        Log::info("=== VERIFICACIÓN DE ÉXITO ===", [
+            'isset_success' => isset($result['success']),
+            'success_raw' => $result['success'] ?? 'NO_EXISTE',
+            'success_strict_true' => $result['success'] === true,
+            'is_success_final' => $isSuccess
+        ]);
+        
+        if ($isSuccess) {
+            Log::info("✅ PRODUCTOS ENVIADOS EXITOSAMENTE - INICIANDO ACTUALIZACIÓN POSTERIOR");
+
+            // ✅ DEBUG: Verificar productos antes de transacción
+            Log::info("=== PRODUCTOS PARA ACTUALIZAR ===", [
+                'cantidad' => count($products),
+                'primer_producto' => [
+                    'cod_barras' => $products[0]['cod_barras'] ?? 'NO_DEFINIDO',
+                    'codigo' => $products[0]['codigo'] ?? 'NO_DEFINIDO',
+                    'descripcion' => $products[0]['descripcion'] ?? 'NO_DEFINIDO'
+                ]
             ]);
 
-            // Enviar a eRetail
-            $result = $this->eRetailService->saveProducts($eRetailProducts);
-
-            // ✅ LOG DEL RESULTADO
-            Log::info('Respuesta de eRetail', [
-                'success' => $result['success'],
-                'message' => $result['message'] ?? 'Sin mensaje'
-            ]);
-            
-            if ($result['success']) {
-                Log::info("Productos enviados exitosamente a eRetail");
-
-                // ✅ MARCAR COMO EXITOSOS CON AMBOS CÓDIGOS
+            // ✅ MARCAR COMO EXITOSOS CON DEBUG COMPLETO
+            try {
                 DB::transaction(function () use ($products) {
-                    foreach ($products as $product) {
-                        // Actualizar log
-                        $log = ProductUpdateLog::where('upload_id', $this->upload->id)
+                    Log::info("=== INICIANDO TRANSACCIÓN ===");
+                    
+                    foreach ($products as $index => $product) {
+                        Log::info("--- Procesando producto {$index} ---", [
+                            'cod_barras' => $product['cod_barras'],
+                            'upload_id' => $this->upload->id
+                        ]);
+
+                        // ✅ BUSCAR LOG CON DEBUG
+                        $logQuery = ProductUpdateLog::where('upload_id', $this->upload->id)
                             ->where('cod_barras', $product['cod_barras'])
-                            ->where('status', 'pending')
-                            ->first();
+                            ->where('status', 'pending');
+                        
+                        Log::info("Query del log", [
+                            'sql' => $logQuery->toSql(),
+                            'bindings' => $logQuery->getBindings()
+                        ]);
+
+                        $log = $logQuery->first();
 
                         if ($log) {
-                            $log->update(['status' => 'success']);
+                            Log::info("✅ Log encontrado", [
+                                'log_id' => $log->id,
+                                'current_status' => $log->status,
+                                'action' => $log->action
+                            ]);
 
-                            // ✅ ACTUALIZAR ÚLTIMA ACTUALIZACIÓN CON AMBOS CÓDIGOS
-                            ProductLastUpdate::updateOrCreate(
-                                ['cod_barras' => $product['cod_barras']],
-                                [
-                                    'codigo' => $product['codigo'],  // Mantener el código interno
+                            // Actualizar log a success
+                            $updateResult = $log->update(['status' => 'success']);
+                            Log::info("Resultado actualización log", ['success' => $updateResult]);
+
+                            // ✅ ACTUALIZAR ÚLTIMA ACTUALIZACIÓN CON DEBUG
+                            try {
+                                $lastUpdateData = [
+                                    'codigo' => $product['codigo'] ?? '',  // Mantener el código interno
                                     'last_update_date' => $product['fec_ul_mo'],
                                     'last_price' => $product['precio_descuento'],
                                     'last_description' => $product['descripcion'],
                                     'last_upload_id' => $this->upload->id
-                                ]
-                            );
+                                ];
+
+                                Log::info("Datos para ProductLastUpdate", [
+                                    'cod_barras' => $product['cod_barras'],
+                                    'data' => $lastUpdateData
+                                ]);
+
+                                $lastUpdate = ProductLastUpdate::updateOrCreate(
+                                    ['cod_barras' => $product['cod_barras']],
+                                    $lastUpdateData
+                                );
+
+                                Log::info("✅ ProductLastUpdate actualizado", [
+                                    'id' => $lastUpdate->id,
+                                    'was_recently_created' => $lastUpdate->wasRecentlyCreated
+                                ]);
+
+                            } catch (\Exception $e) {
+                                Log::error("❌ Error en ProductLastUpdate", [
+                                    'error' => $e->getMessage(),
+                                    'trace' => $e->getTraceAsString()
+                                ]);
+                                throw $e;
+                            }
 
                             // Incrementar contadores
                             if ($log->action === 'created') {
                                 $this->upload->increment('created_products');
+                                Log::info("Incrementado created_products");
                             } else {
                                 $this->upload->increment('updated_products');
+                                Log::info("Incrementado updated_products");
                             }
+                        } else {
+                            Log::warning("❌ LOG NO ENCONTRADO", [
+                                'upload_id' => $this->upload->id,
+                                'cod_barras' => $product['cod_barras'],
+                                'status_buscado' => 'pending'
+                            ]);
+
+                            // ✅ DEBUG: Buscar todos los logs de este upload
+                            $allLogs = ProductUpdateLog::where('upload_id', $this->upload->id)->get();
+                            Log::info("Todos los logs del upload", [
+                                'count' => $allLogs->count(),
+                                'logs' => $allLogs->map(function($l) {
+                                    return [
+                                        'id' => $l->id,
+                                        'cod_barras' => $l->cod_barras,
+                                        'status' => $l->status,
+                                        'action' => $l->action
+                                    ];
+                                })->toArray()
+                            ]);
                         }
                     }
+                    
+                    Log::info("=== TRANSACCIÓN COMPLETADA ===");
                 });
-            } else {
-                Log::error("Error enviando productos a eRetail: " . ($result['message'] ?? 'Sin mensaje'));
-                throw new \Exception($result['message'] ?? 'Error desconocido al enviar a eRetail');
+
+                Log::info("✅ ACTUALIZACIÓN POSTERIOR COMPLETADA EXITOSAMENTE");
+
+            } catch (\Exception $e) {
+                Log::error("❌ ERROR EN TRANSACCIÓN", [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                throw $e;
             }
 
-        } catch (\Exception $e) {
-            Log::error("=== ERROR ENVIANDO BATCH ===");
-            Log::error("Error enviando batch a eRetail: " . $e->getMessage(), [
-                'productos_count' => count($products),
-                'trace' => $e->getTraceAsString()
+        } else {
+            Log::error("❌ eRetail reportó fallo", [
+                'result' => $result,
+                'message' => $result['message'] ?? 'Sin mensaje de error'
             ]);
-
-            throw $e; // Re-lanzar para que se marque el upload como fallido
+            throw new \Exception($result['message'] ?? 'Error desconocido al enviar a eRetail');
         }
+
+    } catch (\Exception $e) {
+        Log::error("=== ERROR ENVIANDO BATCH ===");
+        Log::error("Error enviando batch a eRetail: " . $e->getMessage(), [
+            'productos_count' => count($products),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        throw $e; // Re-lanzar para que se marque el upload como fallido
     }
+}
+
 
     /**
      * ✅ MODIFICAR normalizeHeaders() - Separar código de barras del código interno
@@ -517,13 +633,30 @@ class ExcelProcessorService
     }
 
     /**
-     * Verificar si una fila está vacía
+     * ✅ MEJORAR LA FUNCIÓN DE DETECCIÓN DE FILAS VACÍAS
      */
     private function isEmptyRow($row)
     {
-        return empty(array_filter($row, function ($value) {
-            return !is_null($value) && $value !== '';
-        }));
+        // Si la fila es null o no es array, está vacía
+        if (!is_array($row) || empty($row)) {
+            return true;
+        }
+
+        // Filtrar valores que no sean null, vacíos o solo espacios
+        $nonEmptyValues = array_filter($row, function ($value) {
+            if (is_null($value)) {
+                return false;
+            }
+
+            // Convertir a string y limpiar espacios
+            $cleanValue = trim(strval($value));
+
+            // Considerar vacío si es string vacío o solo contiene espacios/caracteres especiales
+            return $cleanValue !== '' && $cleanValue !== '0' && !preg_match('/^[\s\r\n\t]*$/', $cleanValue);
+        });
+
+        // Si no hay valores válidos, la fila está vacía
+        return empty($nonEmptyValues);
     }
 
     /**
