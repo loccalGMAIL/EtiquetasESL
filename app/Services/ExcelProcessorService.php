@@ -670,28 +670,56 @@ private function sendBatchToERetail($products)
         return trim(str_replace(["\n", "\r", "\t"], ' ', $value));
     }
 
-    /**
-     * Parsear precio
-     */
-    private function parsePrice($value)
-    {
-        if (empty($value)) {
-            return 0;
-        }
-
-        // Si es numérico, devolverlo
-        if (is_numeric($value)) {
-            return (float) $value;
-        }
-
-        // Remover símbolos de moneda y espacios
-        $value = str_replace(['$', ' ', '.'], '', $value);
-
-        // Reemplazar coma por punto si es decimal
-        $value = str_replace(',', '.', $value);
-
-        return (float) $value;
+/**
+ * Parsear y normalizar precios del Excel
+ * Reemplazar la función parsePrice() existente
+ */
+private function parsePrice($value) 
+{
+    // Si es null o vacío, retornar 0
+    if (empty($value) || $value === null) {
+        return 0.00;
     }
+    
+    // Convertir a string y limpiar
+    $cleaned = (string) $value;
+    
+    // Remover caracteres no numéricos excepto puntos y comas
+    $cleaned = preg_replace('/[^0-9.,]/', '', $cleaned);
+    
+    // Si hay tanto coma como punto, asumir que la coma es separador de miles
+    if (strpos($cleaned, ',') !== false && strpos($cleaned, '.') !== false) {
+        // Ejemplo: 1,234.56 → 1234.56
+        $cleaned = str_replace(',', '', $cleaned);
+    } 
+    // Si solo hay comas, podría ser separador decimal (formato europeo)
+    elseif (strpos($cleaned, ',') !== false && strpos($cleaned, '.') === false) {
+        // Solo si hay una coma y está cerca del final (formato decimal)
+        $parts = explode(',', $cleaned);
+        if (count($parts) == 2 && strlen($parts[1]) <= 2) {
+            $cleaned = str_replace(',', '.', $cleaned);
+        } else {
+            // Múltiples comas = separador de miles, remover todas
+            $cleaned = str_replace(',', '', $cleaned);
+        }
+    }
+    
+    // Convertir a float
+    $price = floatval($cleaned);
+    
+    // Validar que el precio es válido
+    if ($price < 0 || !is_numeric($price)) {
+        Log::warning("Precio inválido detectado", [
+            'valor_original' => $value,
+            'valor_limpio' => $cleaned,
+            'precio_parseado' => $price
+        ]);
+        return 0.00;
+    }
+    
+    // Retornar redondeado a exactamente 2 decimales
+    return round($price, 2);
+}
 
     /**
      * Parsear fecha
