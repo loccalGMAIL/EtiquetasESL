@@ -208,20 +208,15 @@ class ERetailService
         $codigoBarras = $productInfo['cod_barras'] ?? '';
             $descripcion = $descripcion . ' - CB: ' . $codigoBarras;
 
-        // Agregar código de barras a la descripción si existe y es válido
-        // if (!empty($codigoBarras) && strlen($codigoBarras) >= 3) {
-        //     $descripcion = $descripcion . ' - CB: ' . $codigoBarras;
-        // }
-
         return [
             'shopCode' => $shopCode,
             'template' => 'REG',
             'items' => [
                 $shopCode,                              // [0] Código tienda cliente
                 $productInfo['codigo'],                 // [1] Código único
-                $productInfo['descripcion'],                           // [2] Nombre producto
+                $descripcion,                           // [2] Nombre producto
                 '',                                     // [3] Nuevo Campo GoodsShortForm
-                $productInfo['cod_barras'],                 // [3] UPC1
+                $productInfo['codigo'],                 // [3] UPC1
                 '',                                     // [5] Código interno del sistema de facturación
                 '',                                     // [6] UPC3
                 (string) $productInfo['precio_original'],     // [7] ✅ Precio original (SIN descuento)
