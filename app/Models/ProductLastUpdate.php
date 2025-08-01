@@ -74,4 +74,22 @@ class ProductLastUpdate extends Model
     {
         return $query->where('last_update_date', '<', now()->subDays($days));
     }
+
+    /**
+     * Buscar producto por codigo interno y descripcion
+     */
+    public static function findByCodigoAndDescription($codigo, $descripcion)
+    {
+        return self::where('codigo', $codigo)
+            ->where('last_description', $descripcion)
+            ->first();
+    }
+
+    /**
+     * Verificar si el código de barras cambió
+     */
+    public function hasBarCodeChanged($newBarCode)
+    {
+        return $this->cod_barras !== $newBarCode;
+    }
 }
