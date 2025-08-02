@@ -24,14 +24,14 @@ return new class extends Migration
             
             // Estadísticas de variantes
             $table->integer('total_variants_processed')->default(0);
-            $table->integer('new_variants_created')->default(0);
-            $table->integer('existing_variants_updated')->default(0);
-            $table->integer('variants_skipped')->default(0);
+            $table->integer('created_variants')->default(0);
+            $table->integer('updated_variants')->default(0);
+            $table->integer('failed_variants')->default(0);
             $table->integer('price_changes_recorded')->default(0);
             
             // Usuario y configuración
             $table->unsignedBigInteger('user_id')->nullable();
-            $table->string('shop_code')->default('0001');
+            $table->string('shop_code');
             $table->text('error_message')->nullable();
             
             $table->timestamps();
