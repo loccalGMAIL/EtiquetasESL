@@ -89,7 +89,7 @@ class ProductVariant extends Model
             'codigo_interno' => $this->codigo_interno,
             'cod_barras' => $this->cod_barras,
             'descripcion' => $this->descripcion,
-            'precio' => $this->product->precio_actual ?? 0.00,
+            'precio' => $this->product->precio_calculado ?? 0.00,
             'is_active' => $this->is_active
         ];
     }
@@ -197,7 +197,7 @@ class ProductVariant extends Model
      */
     public function getCurrentPrice()
     {
-        return $this->product->precio_actual ?? 0.00;
+        return $this->product->precio_calculado ?? 0.00;
     }
 
     /**
@@ -219,7 +219,7 @@ class ProductVariant extends Model
             'codigo_interno' => $this->codigo_interno,
             'cod_barras' => $this->cod_barras,
             'descripcion' => $this->descripcion,
-            'precio_actual' => $this->getCurrentPrice(),
+            'precio_calculado' => $this->getCurrentPrice(),
             'is_active' => $this->is_active,
             'eretail_goodsCode' => $this->id // Para debugging
         ];

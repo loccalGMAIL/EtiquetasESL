@@ -11,7 +11,8 @@ return new class extends Migration
         Schema::create('upload_process_logs', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('upload_id');
-            $table->unsignedBigInteger('product_variant_id');
+            // $table->unsignedBigInteger('product_variant_id');
+            $table->unsignedBigInteger('product_variant_id')->nullable();
             $table->enum('action', ['created', 'updated', 'skipped']);
             $table->enum('status', ['pending', 'success', 'failed'])->default('pending');
             $table->boolean('price_changed')->default(false);

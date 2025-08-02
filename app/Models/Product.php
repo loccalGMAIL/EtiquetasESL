@@ -12,15 +12,16 @@ class Product extends Model
 
     protected $fillable = [
         'codigo_interno',
-        'precio_actual',
+        'precio_final',
+        'precio_calculado',
         'last_price_update'
     ];
 
     protected $casts = [
-        'precio_actual' => 'decimal:2',
+        'precio_final' => 'decimal:2',
+        'precio_calculado' => 'decimal:2',
         'last_price_update' => 'datetime'
     ];
-
     /**
      * Relación con las variantes del producto
      * Un producto puede tener múltiples variantes (códigos de barras)
@@ -31,14 +32,6 @@ class Product extends Model
     }
 
     /**
-     * Relación con el histórico de precios
-     */
-    public function priceHistory()
-    {
-        return $this->hasMany(ProductPriceHistory::class);
-    }
-
-    /**
      * Buscar o crear producto por código interno
      */
     public static function findOrCreateByCodigoInterno($codigoInterno)
@@ -46,7 +39,8 @@ class Product extends Model
         return self::firstOrCreate(
             ['codigo_interno' => $codigoInterno],
             [
-                'precio_actual' => 0.00,
+                'precio_final' => 0.00,
+                'precio_calculado' => 0.00,
                 'last_price_update' => now()
             ]
         );
@@ -56,44 +50,25 @@ class Product extends Model
      * Actualizar precio del producto
      * Esto afecta a todas las variantes del producto
      */
-    public function updatePrice($nuevoPrecio, $uploadId = null)
+    public function updatePrice($precioFinal, $precioCalculado, $uploadId = null)
     {
-        $precioAnterior = $this->precio_actual;
-        
-        // Actualizar precio actual
+        $precioAnterior = $this->precio_final;
+
+        // Actualizar precios
         $this->update([
-            'precio_actual' => $nuevoPrecio,
+            'precio_final' => $precioFinal,
+            'precio_calculado' => $precioCalculado,
             'last_price_update' => now()
         ]);
-
-        // Registrar en histórico si hay cambio
-        if ($precioAnterior != $nuevoPrecio && $uploadId) {
-            $this->recordPriceChange($precioAnterior, $nuevoPrecio, $uploadId);
-        }
-
-        return $precioAnterior != $nuevoPrecio;
     }
 
-    /**
-     * Registrar cambio de precio en el histórico
-     */
-    private function recordPriceChange($precioAnterior, $precioNuevo, $uploadId)
-    {
-        ProductPriceHistory::create([
-            'product_id' => $this->id,
-            'precio_original' => $precioAnterior,
-            'precio_promocional' => $precioNuevo,
-            'fec_ul_mo' => now(),
-            'upload_id' => $uploadId
-        ]);
-    }
 
     /**
      * Verificar si el precio cambió
      */
     public function hasPriceChanged($nuevoPrecio)
     {
-        return $this->precio_actual != $nuevoPrecio;
+        return $this->precio_final != $nuevoPrecio;
     }
 
     /**
@@ -101,11 +76,10 @@ class Product extends Model
      */
     public function calculatePriceChangePercentage($nuevoPrecio)
     {
-        if ($this->precio_actual == 0) {
+        if ($this->precio_final == 0) {
             return 0;
         }
-
-        return round((($nuevoPrecio - $this->precio_actual) / $this->precio_actual) * 100, 2);
+        return round((($nuevoPrecio - $this->precio_final) / $this->precio_final) * 100, 2);
     }
 
     /**
@@ -129,7 +103,7 @@ class Product extends Model
      */
     public function scopeWithPriceGreaterThan($query, $price)
     {
-        return $query->where('precio_actual', '>', $price);
+        return $query->where('precio_final', '>', $price);
     }
 
     /**
@@ -146,26 +120,26 @@ class Product extends Model
     public function scopeNotUpdatedSince($query, $days = 30)
     {
         return $query->where('last_price_update', '<', now()->subDays($days))
-                     ->orWhereNull('last_price_update');
+            ->orWhereNull('last_price_update');
     }
 
-    /**
-     * Obtener último cambio de precio
-     */
-    public function getLastPriceChange()
-    {
-        return $this->priceHistory()
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-    }
+//     /**
+//      * Obtener último cambio de precio
+//      */
+//     public function getLastPriceChange()
+//     {
+//         return $this->priceHistory()
+//             ->orderBy('created_at', 'desc')
+//             ->first();
+//     }
 
-    /**
-     * Obtener histórico de precios ordenado
-     */
-    public function getPriceHistoryOrdered()
-    {
-        return $this->priceHistory()
-                    ->orderBy('fec_ul_mo', 'desc')
-                    ->get();
-    }
+//     /**
+//      * Obtener histórico de precios ordenado
+//      */
+//     public function getPriceHistoryOrdered()
+//     {
+//         return $this->priceHistory()
+//             ->orderBy('fec_ul_mo', 'desc')
+//             ->get();
+//     }
 }

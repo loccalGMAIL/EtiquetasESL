@@ -16,7 +16,7 @@ class Upload extends Model
         'filename',
         'original_filename',
         'status',
-        
+
         // Estadísticas básicas
         'total_products',
         'processed_products',
@@ -24,14 +24,15 @@ class Upload extends Model
         'updated_products',
         'failed_products',
         'skipped_products',
-        
+
         // Estadísticas de variantes (NUEVO)
         'total_variants_processed',
-        'new_variants_created',
-        'existing_variants_updated',
-        'variants_skipped',
+        'updated_variants',
         'price_changes_recorded',
-        
+        'created_variants',
+        'updated_variants',
+        'failed_variants',
+
         // Usuario y configuración
         'user_id',
         'shop_code',
@@ -39,6 +40,9 @@ class Upload extends Model
     ];
 
     protected $casts = [
+        'created_variants' => 'integer',
+        'updated_variants' => 'integer',
+        'failed_variants' => 'integer',
         'total_products' => 'integer',
         'processed_products' => 'integer',
         'created_products' => 'integer',
@@ -46,9 +50,6 @@ class Upload extends Model
         'failed_products' => 'integer',
         'skipped_products' => 'integer',
         'total_variants_processed' => 'integer',
-        'new_variants_created' => 'integer',
-        'existing_variants_updated' => 'integer',
-        'variants_skipped' => 'integer',
         'price_changes_recorded' => 'integer',
         'user_id' => 'integer',
     ];
@@ -67,14 +68,6 @@ class Upload extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
-    }
-
-    /**
-     * Relación con el histórico de precios a través de este upload
-     */
-    public function priceHistories()
-    {
-        return $this->hasMany(ProductPriceHistory::class);
     }
 
     /**
@@ -141,7 +134,7 @@ class Upload extends Model
         if ($this->total_products == 0) {
             return 0;
         }
-        
+
         return round(($this->processed_products / $this->total_products) * 100, 2);
     }
 
@@ -153,8 +146,8 @@ class Upload extends Model
         if ($this->total_variants_processed == 0) {
             return 0;
         }
-        
-        $completed = $this->new_variants_created + $this->existing_variants_updated + $this->variants_skipped;
+
+        $completed = $this->created_variants + $this->updated_variants + $this->failed_variants;
         return round(($completed / $this->total_variants_processed) * 100, 2);
     }
 
@@ -175,9 +168,9 @@ class Upload extends Model
             ],
             'variants' => [
                 'total_processed' => $this->total_variants_processed,
-                'new_created' => $this->new_variants_created,
-                'existing_updated' => $this->existing_variants_updated,
-                'skipped' => $this->variants_skipped,
+                'created' => $this->created_variants,
+                'updated' => $this->updated_variants,
+                'failed' => $this->failed_variants,
                 'progress' => $this->variants_progress_percentage
             ],
             'prices' => [
@@ -192,23 +185,30 @@ class Upload extends Model
     public function updateProductStats($created = 0, $updated = 0, $failed = 0, $skipped = 0)
     {
         $this->increment('processed_products');
-        
-        if ($created > 0) $this->increment('created_products', $created);
-        if ($updated > 0) $this->increment('updated_products', $updated);
-        if ($failed > 0) $this->increment('failed_products', $failed);
-        if ($skipped > 0) $this->increment('skipped_products', $skipped);
+
+        if ($created > 0)
+            $this->increment('created_products', $created);
+        if ($updated > 0)
+            $this->increment('updated_products', $updated);
+        if ($failed > 0)
+            $this->increment('failed_products', $failed);
+        if ($skipped > 0)
+            $this->increment('skipped_products', $skipped);
     }
 
     /**
      * Actualizar estadísticas de variantes
      */
-    public function updateVariantStats($newCreated = 0, $existingUpdated = 0, $skipped = 0)
+    public function updateVariantStats($created = 0, $updated = 0, $failed = 0)
     {
         $this->increment('total_variants_processed');
-        
-        if ($newCreated > 0) $this->increment('new_variants_created', $newCreated);
-        if ($existingUpdated > 0) $this->increment('existing_variants_updated', $existingUpdated);
-        if ($skipped > 0) $this->increment('variants_skipped', $skipped);
+
+        if ($created > 0)
+            $this->increment('created_variants', $created);
+        if ($updated > 0)
+            $this->increment('updated_variants', $updated);
+        if ($failed > 0)
+            $this->increment('failed_variants', $failed);
     }
 
     /**

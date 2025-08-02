@@ -219,7 +219,7 @@ class UploadProcessLog extends Model
                            'codigo_interno' => $log->productVariant->codigo_interno,
                            'cod_barras' => $log->productVariant->cod_barras,
                            'descripcion' => $log->productVariant->descripcion,
-                           'precio_actual' => $log->productVariant->product->precio_actual ?? 0,
+                           'precio_calculado' => $log->productVariant->product->precio_calculado ?? 0,
                            'action' => $log->action,
                            'status' => $log->status,
                            'price_changed' => $log->price_changed,

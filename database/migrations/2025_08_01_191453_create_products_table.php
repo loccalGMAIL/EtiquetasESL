@@ -11,13 +11,15 @@ return new class extends Migration
         Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('codigo_interno', 255);
-            $table->decimal('precio_actual', 10, 2)->default(0.00);
+            $table->decimal('precio_final', 10, 2)->default(0.00);
+            $table->decimal('precio_calculado', 10, 2)->default(0.00);
             $table->timestamp('last_price_update')->nullable();
             $table->timestamps();
             
             // Índices básicos
             $table->unique('codigo_interno');
-            $table->index('precio_actual');
+            $table->index('precio_final');
+            $table->index('precio_calculado');
         });
     }
 

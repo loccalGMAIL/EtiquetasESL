@@ -68,6 +68,130 @@ class ERetailService
     }
 
     /**
+     * 🔥 CREAR O ACTUALIZAR PRODUCTOS - ACTUALIZADO PARA NUEVA ARQUITECTURA
+     */
+    public function saveProducts($products)
+    {
+        try {
+            // Log del JSON que se enviará
+            Log::info('JSON enviado a eRetail - Nueva Arquitectura', [
+                'url' => '/api/goods/saveList?NR=false',
+                'productos_count' => count($products),
+                'arquitectura' => 'ProductVariant',
+                'json_preview' => json_encode(array_slice($products, 0, 2), JSON_PRETTY_PRINT)
+            ]);
+
+            $response = $this->authenticatedRequest('POST', '/api/goods/saveList?NR=false', [
+                'json' => $products
+            ]);
+
+            // Log de la respuesta completa
+            Log::info('Respuesta completa de eRetail', [
+                'response' => $response,
+                'arquitectura' => 'ProductVariant'
+            ]);
+
+            if ($response['code'] === 0) {
+                return [
+                    'success' => true,
+                    'message' => $response['message'] ?? 'Productos guardados correctamente',
+                    'body' => $response['body'] ?? null
+                ];
+            }
+
+            // Log del error
+            Log::error('Error en respuesta de eRetail', [
+                'code' => $response['code'],
+                'message' => $response['message'] ?? 'Sin mensaje de error',
+                'arquitectura' => 'ProductVariant'
+            ]);
+
+            throw new ERetailException($response['message'] ?? 'Error al guardar productos');
+
+        } catch (GuzzleException $e) {
+            Log::error('Error HTTP enviando productos a eRetail', [
+                'status_code' => $e->getCode(),
+                'message' => $e->getMessage(),
+                'arquitectura' => 'ProductVariant',
+                'response_body' => ($e instanceof \GuzzleHttp\Exception\RequestException && $e->getResponse())
+                    ? $e->getResponse()->getBody()->getContents()
+                    : 'Sin respuesta'
+            ]);
+            throw new ERetailException('Error al enviar productos: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 🔥 CONSTRUIR ARRAY DE PRODUCTO PARA eRETAIL - ACTUALIZADO PARA ProductVariant
+     * 
+     * CRÍTICO: Ahora recibe ProductVariant.id como 'id' que se usa como goodsCode
+     */
+    public function buildProductData($productInfo, $shopCode = null)
+    {
+        $shopCode = $shopCode ?? $this->config['default_shop_code'];
+
+        // Validar que tenemos el ID de ProductVariant
+        if (!isset($productInfo['id']) || empty($productInfo['id'])) {
+            throw new ERetailException('ProductVariant ID es requerido para buildProductData');
+        }
+
+        // Construir descripción con código de barras
+        $descripcion = $productInfo['descripcion'] ?? '';
+        $codigoBarras = $productInfo['cod_barras'] ?? '';
+        
+        if (!empty($codigoBarras)) {
+            $descripcion = $descripcion . ' - CB: ' . $codigoBarras;
+        }
+
+        // 🔥 CRÍTICO: productInfo['id'] ahora es ProductVariant.id (ESTABLE)
+        $goodsCode = $productInfo['id']; // ← ProductVariant.id
+
+        Log::debug('Construyendo producto para eRetail', [
+            'variant_id_como_goodsCode' => $goodsCode,
+            'codigo_interno' => $productInfo['codigo'] ?? 'N/A',
+            'cod_barras' => $codigoBarras,
+            'descripcion_truncada' => substr($descripcion, 0, 50),
+            'precio_original' => $productInfo['precio_original'] ?? 0,
+            'precio_promocional' => $productInfo['precio_promocional'] ?? 0
+        ]);
+
+        return [
+            'shopCode' => $shopCode,
+            'template' => 'REG',
+            'items' => [
+                $shopCode,                                          // [0] Código tienda cliente
+                (string) $goodsCode,                               // [1] 🔥 ProductVariant.id como goodsCode
+                $descripcion,                                       // [2] Nombre producto + Codigo de barras
+                '',                                                // [3] GoodsShortForm
+                $productInfo['codigo'] ?? '',                      // [4] UPC1 - Código interno
+                $codigoBarras,                                     // [5] UPC2 - Código de barras
+                '',                                                // [6] UPC3
+                (string) ($productInfo['precio_original'] ?? 0),   // [7] Precio original (SIN descuento)
+                (string) ($productInfo['precio_promocional'] ?? 0), // [8] Precio promocional (CON descuento)
+                '',                                                // [9] Precio miembro
+                'Argentina',                                       // [10] Origen
+                'Unidad',                                         // [11] Especificación
+                'UN',                                             // [12] Unidad
+                '',                                               // [13] Grado
+                '',                                               // [14] Fecha inicio promo
+                '',                                               // [15] Fecha fin promo
+                '',                                               // [16] Código QR
+                'Sistema',                                        // [17] Responsable precio
+                '0',                                              // [18] Inventario
+                '',                                               // [19-26] Campos adicionales vacíos
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                ''
+            ]
+        ];
+    }
+
+    /**
      * Realizar petición autenticada
      */
     private function authenticatedRequest($method, $endpoint, $options = [])
@@ -93,7 +217,7 @@ class ERetailService
 
             Log::info('Respuesta HTTP de eRetail', [
                 'status_code' => $response->getStatusCode(),
-                'body_preview' => substr($responseBody, 0, 500) // Primeros 500 caracteres
+                'body_preview' => substr($responseBody, 0, 500)
             ]);
 
             return json_decode($responseBody, true);
@@ -117,13 +241,18 @@ class ERetailService
     }
 
     /**
-     * Buscar producto por código de barras
+     * 🔥 BUSCAR PRODUCTO POR CÓDIGO DE BARRAS - ACTUALIZADO
      */
     public function findProduct($codBarras, $shopCode = null)
     {
         $shopCode = $shopCode ?? $this->config['default_shop_code'];
 
         try {
+            Log::info('Buscando producto en eRetail', [
+                'cod_barras' => $codBarras,
+                'shop_code' => $shopCode
+            ]);
+
             $response = $this->authenticatedRequest('POST', '/api/Goods/getList', [
                 'json' => [
                     'pageIndex' => 1,
@@ -134,9 +263,16 @@ class ERetailService
             ]);
 
             if ($response['code'] === 0 && isset($response['body']['itemList']) && count($response['body']['itemList']) > 0) {
+                Log::info('Producto encontrado en eRetail', [
+                    'cod_barras' => $codBarras,
+                    'goodsCode_encontrado' => $response['body']['itemList'][0]['goodsCode'] ?? 'N/A'
+                ]);
                 return $response['body']['itemList'][0];
             }
 
+            Log::info('Producto no encontrado en eRetail', [
+                'cod_barras' => $codBarras
+            ]);
             return null;
 
         } catch (GuzzleException $e) {
@@ -146,104 +282,47 @@ class ERetailService
     }
 
     /**
-     * Crear o actualizar productos
+     * 🔥 BUSCAR PRODUCTO POR ProductVariant.id (goodsCode)
+     * 
+     * Nuevo método para buscar por el ID estable de ProductVariant
      */
-    public function saveProducts($products)
-    {
-        try {
-            // ✅ LOG DEL JSON QUE SE ENVIARÁ
-            Log::info('JSON enviado a eRetail', [
-                'url' => '/api/goods/saveList?NR=false',
-                'productos_count' => count($products),
-                'json_preview' => json_encode(array_slice($products, 0, 2), JSON_PRETTY_PRINT) // Solo 2 para no saturar logs
-            ]);
-
-            $response = $this->authenticatedRequest('POST', '/api/goods/saveList?NR=false', [
-                'json' => $products
-            ]);
-
-            // ✅ LOG DE LA RESPUESTA COMPLETA
-            Log::info('Respuesta completa de eRetail', [
-                'response' => $response
-            ]);
-
-            if ($response['code'] === 0) {
-                return [
-                    'success' => true,
-                    'message' => $response['message'] ?? 'Productos guardados correctamente',
-                    'body' => $response['body'] ?? null
-                ];
-            }
-
-            // ✅ LOG DEL ERROR
-            Log::error('Error en respuesta de eRetail', [
-                'code' => $response['code'],
-                'message' => $response['message'] ?? 'Sin mensaje de error'
-            ]);
-
-            throw new ERetailException($response['message'] ?? 'Error al guardar productos');
-
-        } catch (GuzzleException $e) {
-            Log::error('Error HTTP enviando productos a eRetail', [
-                'status_code' => $e->getCode(),
-                'message' => $e->getMessage(),
-                'response_body' => method_exists($e, 'getResponse') && $e->getResponse()
-                    ? $e->getResponse()->getBody()->getContents()
-                    : 'Sin respuesta'
-            ]);
-            throw new ERetailException('Error al enviar productos: ' . $e->getMessage());
-        }
-    }
-
-
-    /**
-     * Construir array de producto para eRetail
-     */
-    public function buildProductData($productInfo, $shopCode = null)
+    public function findProductByVariantId($variantId, $shopCode = null)
     {
         $shopCode = $shopCode ?? $this->config['default_shop_code'];
 
-        // ✅ CONSTRUIR DESCRIPCIÓN CON CÓDIGO DE BARRAS
-        $descripcion = $productInfo['descripcion'];
-        $codigoBarras = $productInfo['cod_barras'] ?? '';
-            $descripcion = $descripcion . ' - CB: ' . $codigoBarras;
+        try {
+            Log::info('Buscando producto por ProductVariant.id en eRetail', [
+                'variant_id' => $variantId,
+                'shop_code' => $shopCode
+            ]);
 
-        return [
-            'shopCode' => $shopCode,
-            'template' => 'REG',
-            'items' => [
-                $shopCode,                              // [0] Código tienda cliente
-                $productInfo['id'],                     // [1] Código único
-                $descripcion,                           // [2] Nombre producto + Codigo de barras
-                '',                                     // [3] GoodsShortForm
-                $productInfo['codigo'],                 // [4] UPC1
-                $productInfo['cod_barras'],             // [5] UPC2
-                '',                                     // [6] UPC3
-                (string) $productInfo['precio_original'],     // [7] ✅ Precio original (SIN descuento)
-                (string) $productInfo['precio_promocional'],  // [8] ✅ Precio promocional (CON descuento)
-                '',                                     // [9] Precio miembro
-                'Argentina',                            // [10] Origen
-                'Unidad',                              // [11] Especificación
-                'UN',                                  // [12] Unidad
-                '',                                    // [13] Grado
-                '',                                    // [14] Fecha inicio promo
-                '',                                    // [15] Fecha fin promo
-                '',                                    // [16] Código QR
-                'Sistema',                             // [17] Responsable precio
-                '0',                                   // [18] Inventario
-                '',                                    // [19-26] Campos adicionales vacíos
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                ''
-            ]
-        ];
+            $response = $this->authenticatedRequest('POST', '/api/Goods/getList', [
+                'json' => [
+                    'pageIndex' => 1,
+                    'pageSize' => 1,
+                    'shopCode' => $shopCode,
+                    'goodsCode' => (string) $variantId
+                ]
+            ]);
+
+            if ($response['code'] === 0 && isset($response['body']['itemList']) && count($response['body']['itemList']) > 0) {
+                Log::info('Producto encontrado por ProductVariant.id', [
+                    'variant_id' => $variantId,
+                    'goodsCode_encontrado' => $response['body']['itemList'][0]['goodsCode'] ?? 'N/A'
+                ]);
+                return $response['body']['itemList'][0];
+            }
+
+            Log::info('Producto no encontrado por ProductVariant.id', [
+                'variant_id' => $variantId
+            ]);
+            return null;
+
+        } catch (GuzzleException $e) {
+            Log::error("Error buscando producto por variant ID {$variantId}: " . $e->getMessage());
+            throw new ERetailException("Error al buscar producto por variant ID: " . $e->getMessage());
+        }
     }
-
 
     /**
      * Test de conexión
@@ -259,127 +338,70 @@ class ERetailService
     }
 
     /**
-     * Actualizar etiquetas específicas (por lista de códigos de barras)
+     * 🔥 ACTUALIZAR ETIQUETAS ESPECÍFICAS - ACTUALIZADO PARA ProductVariant
+     * 
+     * Ahora acepta array de ProductVariant IDs
      */
-    public function refreshSpecificTags($productCodes, $shopCode = null)
+    public function refreshSpecificTags($variantIds, $shopCode = null)
     {
         $shopCode = $shopCode ?? $this->config['default_shop_code'];
 
         try {
-            Log::info('Solicitando actualización de etiquetas específicas', [
+            Log::info('Refrescando etiquetas específicas', [
+                'variant_ids_count' => count($variantIds),
                 'shop_code' => $shopCode,
-                'productos_count' => count($productCodes),
-                'productos' => array_slice($productCodes, 0, 5) // Solo los primeros 5 para log
+                'primeros_3_ids' => array_slice($variantIds, 0, 3)
             ]);
 
-            $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
-                'json' => [
+            // Crear array de productos para refresh
+            $refreshData = [];
+            foreach ($variantIds as $variantId) {
+                $refreshData[] = [
                     'shopCode' => $shopCode,
-                    'refreshType' => 3, // 4 = Lista específica de tags
-                    'refreshName' => '',
-                    'tags' => $productCodes
-                ]
+                    'tagID' => '',
+                    'goodsCode' => (string) $variantId, // ProductVariant.id como goodsCode
+                    'goodsName' => '',
+                    'template' => 'REG',
+                    'items' => []
+                ];
+            }
+
+            $response = $this->authenticatedRequest('POST', '/api/esl/tag/pushList', [
+                'json' => $refreshData
             ]);
 
             if ($response['code'] === 0) {
-                Log::info('Actualización de etiquetas iniciada correctamente', [
+                Log::info('Etiquetas refrescadas exitosamente', [
+                    'variant_ids_count' => count($variantIds),
                     'message' => $response['message'] ?? 'Sin mensaje'
                 ]);
-
-                return [
-                    'success' => true,
-                    'message' => $response['message'] ?? 'Actualización iniciada correctamente'
-                ];
+                return true;
             }
 
-            Log::error('Error en actualización de etiquetas', [
+            Log::error('Error refrescando etiquetas', [
                 'code' => $response['code'],
-                'message' => $response['message'] ?? 'Sin mensaje de error'
+                'message' => $response['message'] ?? 'Sin mensaje'
             ]);
-
-            throw new ERetailException($response['message'] ?? 'Error al actualizar etiquetas');
+            
+            return false;
 
         } catch (GuzzleException $e) {
-            Log::error('Error HTTP actualizando etiquetas', [
-                'message' => $e->getMessage(),
-                'code' => $e->getCode()
-            ]);
-            throw new ERetailException('Error al solicitar actualización de etiquetas: ' . $e->getMessage());
+            Log::error('Error HTTP refrescando etiquetas: ' . $e->getMessage());
+            throw new ERetailException('Error al refrescar etiquetas: ' . $e->getMessage());
         }
     }
 
     /**
-     * Actualizar todas las etiquetas de una tienda
+     * 🔥 VALIDAR QUE PRODUCTO EXISTE EN eRETAIL POR ProductVariant.id
      */
-    public function refreshAllStoreTags($shopCode = null)
+    public function validateProductExists($variantId, $shopCode = null)
     {
-        $shopCode = $shopCode ?? $this->config['default_shop_code'];
-
         try {
-            Log::info('Solicitando actualización de toda la tienda', [
-                'shop_code' => $shopCode
-            ]);
-
-            $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
-                'json' => [
-                    'shopCode' => $shopCode,
-                    'refreshType' => 3, // 3 = Toda la tienda
-                    'refreshName' => '',
-                    'tags' => []
-                ]
-            ]);
-
-            if ($response['code'] === 0) {
-                return [
-                    'success' => true,
-                    'message' => $response['message'] ?? 'Actualización de tienda iniciada'
-                ];
-            }
-
-            throw new ERetailException($response['message'] ?? 'Error al actualizar tienda');
-
-        } catch (GuzzleException $e) {
-            Log::error('Error actualizando tienda completa: ' . $e->getMessage());
-            throw new ERetailException('Error al actualizar tienda: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Hacer parpadear etiquetas específicas (para localización)
-     */
-    public function flashTags($productCodes, $shopCode = null, $color = 'RGB', $seconds = 10)
-    {
-        $shopCode = $shopCode ?? $this->config['default_shop_code'];
-
-        try {
-            Log::info('Haciendo parpadear etiquetas', [
-                'productos_count' => count($productCodes),
-                'color' => $color,
-                'duracion' => $seconds
-            ]);
-
-            $response = $this->authenticatedRequest('POST', '/api/esl/tag/led', [
-                'json' => [
-                    'shopCode' => $shopCode,
-                    'rgb' => $color, // R=Rojo, G=Verde, B=Azul, RGB=Todos
-                    'times' => $seconds,
-                    'idList' => $productCodes,
-                    'ledType' => 0 // 0 = Por código de producto, 1 = Por ID de etiqueta
-                ]
-            ]);
-
-            if ($response['code'] === 0) {
-                return [
-                    'success' => true,
-                    'message' => 'Etiquetas parpadeando'
-                ];
-            }
-
-            throw new ERetailException($response['message'] ?? 'Error al hacer parpadear etiquetas');
-
-        } catch (GuzzleException $e) {
-            Log::error('Error haciendo parpadear etiquetas: ' . $e->getMessage());
-            throw new ERetailException('Error: ' . $e->getMessage());
+            $product = $this->findProductByVariantId($variantId, $shopCode);
+            return $product !== null;
+        } catch (\Exception $e) {
+            Log::error("Error validando existencia del producto variant ID {$variantId}: " . $e->getMessage());
+            return false;
         }
     }
 }
