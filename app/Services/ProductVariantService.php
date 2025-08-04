@@ -29,11 +29,11 @@ class ProductVariantService
             $variant = ProductVariant::firstOrCreate(
                 [
                     'codigo_interno' => $variantData['codigo_interno'],
-                    'descripcion' => $variantData['descripcion']
+                    'cod_barras' => $variantData['cod_barras']  // ← CORRECTO
                 ],
                 [
                     'product_id' => $product->id,
-                    'cod_barras' => $variantData['cod_barras'] ?? null,
+                    'descripcion' => $variantData['descripcion'],  // ← Mover aquí
                     'is_active' => true
                 ]
             );

@@ -49,11 +49,11 @@ class ProductVariant extends Model
         return self::firstOrCreate(
             [
                 'codigo_interno' => $codigoInterno,
-                'descripcion' => $descripcion
+                'cod_barras' => $codBarras  // ← CORRECTO
             ],
             [
                 'product_id' => $productId,
-                'cod_barras' => $codBarras,
+                'descripcion' => $descripcion,  // ← Mover aquí
                 'is_active' => true
             ]
         );
@@ -67,7 +67,7 @@ class ProductVariant extends Model
         if ($this->cod_barras !== $newBarcode) {
             $oldBarcode = $this->cod_barras;
             $this->update(['cod_barras' => $newBarcode]);
-            
+
             return [
                 'changed' => true,
                 'old_barcode' => $oldBarcode,
@@ -100,8 +100,8 @@ class ProductVariant extends Model
     public static function findByBarcode($barcode)
     {
         return self::where('cod_barras', $barcode)
-                   ->where('is_active', true)
-                   ->first();
+            ->where('is_active', true)
+            ->first();
     }
 
     /**
@@ -110,8 +110,8 @@ class ProductVariant extends Model
     public static function findByCodigoInterno($codigoInterno)
     {
         return self::where('codigo_interno', $codigoInterno)
-                   ->where('is_active', true)
-                   ->get();
+            ->where('is_active', true)
+            ->get();
     }
 
     /**
@@ -120,8 +120,8 @@ class ProductVariant extends Model
     public static function findByCodigoAndDescription($codigoInterno, $descripcion)
     {
         return self::where('codigo_interno', $codigoInterno)
-                   ->where('descripcion', $descripcion)
-                   ->first();
+            ->where('descripcion', $descripcion)
+            ->first();
     }
 
     /**
@@ -130,7 +130,7 @@ class ProductVariant extends Model
     public static function getVariantsForERetail($shopCode = null)
     {
         $query = self::with('product')
-                     ->where('is_active', true);
+            ->where('is_active', true);
 
         if ($shopCode) {
             // Si necesitamos filtrar por tienda en el futuro

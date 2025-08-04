@@ -225,7 +225,7 @@ class ExcelProcessorService
             // 🔥 NUEVO: Capturar valores anteriores ANTES de modificar
             $existingProduct = Product::where('codigo_interno', $rowData['codigo'])->first();
             $existingVariant = ProductVariant::where('codigo_interno', $rowData['codigo'])
-                ->where('descripcion', $rowData['descripcion'])
+                ->where('cod_barras', $rowData['cod_barras'])  // ← CORRECTO
                 ->first();
 
             $oldPrice = $existingProduct ? $existingProduct->precio_final : null;
@@ -257,11 +257,11 @@ class ExcelProcessorService
             $variant = ProductVariant::firstOrCreate(
                 [
                     'codigo_interno' => $rowData['codigo'],
-                    'descripcion' => $rowData['descripcion']
+                    'cod_barras' => $rowData['cod_barras']  // ← SOLUCIÓN: Usar código de barras como criterio único
                 ],
                 [
                     'product_id' => $product->id,
-                    'cod_barras' => $rowData['cod_barras'],
+                    'descripcion' => $rowData['descripcion'],  // ← Mover descripción a los campos de creación
                     'is_active' => true
                 ]
             );
@@ -405,6 +405,12 @@ class ExcelProcessorService
 
             Log::info("IDs de variantes extraídos: " . implode(', ', $variantIds));
 
+            // 🔥 DEDUPLICAR IDs para evitar productos duplicados
+            $variantIds = array_unique($variantIds);
+            $variantIds = array_values($variantIds); // Reindexar array
+
+            Log::info("IDs únicos después de deduplicar: " . implode(', ', $variantIds));
+
             $pendingLogs = UploadProcessLog::where('upload_id', $this->upload->id)
                 ->whereIn('product_variant_id', $variantIds)
                 ->where('status', 'pending')
@@ -418,8 +424,10 @@ class ExcelProcessorService
 
             Log::info("Logs pendientes obtenidos: " . $pendingLogs->count());
 
-            // 🔥 CONSTRUIR ARRAY PARA eRETAIL CON IDs ESTABLES
+            // 🔥 CONSTRUIR ARRAY PARA eRETAIL CON IDs ESTABLES - DEDUPLICADO POR VARIANTE
             $eRetailProducts = [];
+            $processedVariantIds = []; // 🔥 NUEVO: Tracking de variantes ya procesadas
+            $logsByVariant = []; // 🔥 NUEVO: Agrupar logs por variante para después marcarlos
 
             foreach ($pendingLogs as $log) {
                 $variant = $log->productVariant;
@@ -429,7 +437,32 @@ class ExcelProcessorService
                     continue;
                 }
 
-                // 🔥 CRÍTICO: Usar ProductVariant.id como goodsCode
+                // 🔥 NUEVO: Verificar si ya procesamos esta variante específica
+                if (in_array($variant->id, $processedVariantIds)) {
+                    Log::warning("Variante ya procesada en este batch, omitiendo duplicado", [
+                        'variant_id' => $variant->id,
+                        'codigo_interno' => $variant->codigo_interno,
+                        'log_id' => $log->id
+                    ]);
+
+                    // 🔥 IMPORTANTE: Agregar el log al grupo para marcarlo después
+                    if (!isset($logsByVariant[$variant->id])) {
+                        $logsByVariant[$variant->id] = [];
+                    }
+                    $logsByVariant[$variant->id][] = $log;
+                    continue;
+                }
+
+                // 🔥 MARCAR variante como procesada
+                $processedVariantIds[] = $variant->id;
+
+                // 🔥 Inicializar array de logs para esta variante
+                if (!isset($logsByVariant[$variant->id])) {
+                    $logsByVariant[$variant->id] = [];
+                }
+                $logsByVariant[$variant->id][] = $log;
+
+                // 🔥 CRÍTICO: Usar ProductVariant.id como goodsCode (SOLO UNA VEZ POR VARIANTE)
                 $eRetailProducts[] = $this->eRetailService->buildProductData([
                     'id' => $variant->id,                    // ← ID ESTABLE de ProductVariant
                     'codigo' => $variant->codigo_interno,
@@ -445,6 +478,14 @@ class ExcelProcessorService
                 return false;
             }
 
+            // 🔥 NUEVO: Log detallado de deduplicación
+            Log::info("Deduplicación completada", [
+                'total_logs' => $pendingLogs->count(),
+                'variantes_unicas' => count($processedVariantIds),
+                'productos_enviados' => count($eRetailProducts),
+                'logs_agrupados_por_variante' => array_map('count', $logsByVariant)
+            ]);
+
             // Log para verificar estructura
             Log::info('Enviando a eRetail con IDs estables de ProductVariant', [
                 'productos_count' => count($eRetailProducts),
@@ -455,6 +496,19 @@ class ExcelProcessorService
                 ],
                 'variant_ids_enviados' => array_column(array_column($eRetailProducts, 'items'), 1)
             ]);
+
+            // 🔥 VERIFICAR NO HAY DUPLICADOS EN EL ARRAY FINAL
+            $sentVariantIds = array_column(array_column($eRetailProducts, 'items'), 1);
+            $uniqueSentIds = array_unique($sentVariantIds);
+
+            if (count($sentVariantIds) !== count($uniqueSentIds)) {
+                Log::error("¡DUPLICADOS DETECTADOS EN ARRAY FINAL!", [
+                    'total_productos' => count($sentVariantIds),
+                    'productos_unicos' => count($uniqueSentIds),
+                    'duplicados' => array_diff_assoc($sentVariantIds, $uniqueSentIds)
+                ]);
+                throw new \Exception("Duplicados detectados en array final antes de enviar a eRetail");
+            }
 
             // 🔥 ENVIAR A eRETAIL
             $result = $this->eRetailService->saveProducts($eRetailProducts);
@@ -468,10 +522,12 @@ class ExcelProcessorService
             ]);
 
             if ($isSuccess) {
-                // Marcar logs como exitosos
-                $pendingLogs->each(function ($log) {
-                    $log->update(['status' => 'success']);
-                });
+                // 🔥 MARCAR TODOS LOS LOGS COMO EXITOSOS (incluyendo duplicados)
+                foreach ($logsByVariant as $variantId => $logs) {
+                    foreach ($logs as $log) {
+                        $log->update(['status' => 'success']);
+                    }
+                }
 
                 // Incrementar contadores por acción
                 $createdCount = $pendingLogs->where('action', 'created')->count();
@@ -485,19 +541,22 @@ class ExcelProcessorService
                 }
 
                 Log::info("✅ Batch enviado exitosamente", [
-                    'total' => $pendingLogs->count(),
+                    'total_logs' => $pendingLogs->count(),
+                    'variantes_unicas_enviadas' => count($processedVariantIds),
                     'created' => $createdCount,
                     'updated' => $updatedCount
                 ]);
 
             } else {
-                // Marcar logs como fallidos
-                $pendingLogs->each(function ($log) use ($result) {
-                    $log->update([
-                        'status' => 'failed',
-                        'error_message' => $result['message'] ?? 'Error desconocido en eRetail'
-                    ]);
-                });
+                // 🔥 MARCAR TODOS LOS LOGS COMO FALLIDOS
+                foreach ($logsByVariant as $variantId => $logs) {
+                    foreach ($logs as $log) {
+                        $log->update([
+                            'status' => 'failed',
+                            'error_message' => $result['message'] ?? 'Error desconocido en eRetail'
+                        ]);
+                    }
+                }
 
                 $this->upload->increment('failed_variants', $pendingLogs->count());
                 Log::error("❌ Error enviando batch: " . ($result['message'] ?? 'Error desconocido'));
