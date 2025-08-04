@@ -192,16 +192,23 @@
                                         </div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                        @if($log->productVariant)
-                                            <div>
-                                                <span class="text-green-600 font-medium">
-                                                    ${{ number_format($log->productVariant->precio_final, 2) }}
-                                                </span>
-                                                @if($log->productVariant->precio_calculado != $log->productVariant->precio_final)
-                                                    <br>
-                                                    <span class="text-blue-600 text-xs">
-                                                        Promo: ${{ number_format($log->productVariant->precio_calculado, 2) }}
-                                                    </span>
+                                        @if($log->productVariant && $log->productVariant->product)
+                                            <div class="space-y-1">
+                                                {{-- 🎯 NUEVO FORMATO DE PRECIOS COMO LA VISTA ANTERIOR - DESDE TABLA PRODUCT --}}
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="text-xs text-gray-500">Original:</span>
+                                                    <span class="font-medium">${{ number_format($log->productVariant->product->precio_final, 2) }}</span>
+                                                </div>
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="text-xs text-gray-500">Descuento:</span>
+                                                    <span class="font-medium text-green-600">${{ number_format($log->productVariant->product->precio_calculado, 2) }}</span>
+                                                </div>
+                                                {{-- 🎯 MOSTRAR PRECIO ANTERIOR SI EXISTE --}}
+                                                @if(isset($log->precio_anterior_eretail) && $log->precio_anterior_eretail)
+                                                    <div class="flex items-center space-x-2">
+                                                        <span class="text-xs text-gray-500">Anterior:</span>
+                                                        <span class="text-xs text-gray-400">${{ number_format($log->precio_anterior_eretail, 2) }}</span>
+                                                    </div>
                                                 @endif
                                             </div>
                                         @else
