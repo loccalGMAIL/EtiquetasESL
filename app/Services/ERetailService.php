@@ -138,7 +138,7 @@ class ERetailService
         // Construir descripción con código de barras
         $descripcion = $productInfo['descripcion'] ?? '';
         $codigoBarras = $productInfo['cod_barras'] ?? '';
-        
+
         if (!empty($codigoBarras)) {
             $descripcion = $descripcion . ' - CB: ' . $codigoBarras;
         }
@@ -191,55 +191,66 @@ class ERetailService
         ];
     }
 
-    /**
-     * Realizar petición autenticada
-     */
-    private function authenticatedRequest($method, $endpoint, $options = [])
-    {
-        if (!$this->token) {
-            Log::info('Token no encontrado, autenticando...');
-            $this->login();
-        }
-
-        $options['headers'] = array_merge($options['headers'] ?? [], [
-            'Authorization' => 'Bearer ' . $this->token
-        ]);
-
-        try {
-            Log::info('Haciendo petición a eRetail', [
-                'method' => $method,
-                'endpoint' => $endpoint,
-                'has_token' => !empty($this->token)
-            ]);
-
-            $response = $this->client->request($method, $endpoint, $options);
-            $responseBody = $response->getBody()->getContents();
-
-            Log::info('Respuesta HTTP de eRetail', [
-                'status_code' => $response->getStatusCode(),
-                'body_preview' => substr($responseBody, 0, 500)
-            ]);
-
-            return json_decode($responseBody, true);
-
-        } catch (GuzzleException $e) {
-            // Si el error es 401, intentar login de nuevo
-            if ($e->getCode() === 401) {
-                Log::warning('Token expirado (401), reautenticando...');
-                Cache::forget('eretail_token');
-                $this->token = null;
-                $this->login();
-
-                // Reintentar la petición
-                $options['headers']['Authorization'] = 'Bearer ' . $this->token;
-                $response = $this->client->request($method, $endpoint, $options);
-                return json_decode($response->getBody()->getContents(), true);
-            }
-
-            throw $e;
-        }
+/**
+ * 🚨 CORRECCIÓN CRÍTICA: Reemplazar método authenticatedRequest()
+ * 
+ * El método getToken() NO EXISTE. Debemos usar $this->token directamente.
+ */
+private function authenticatedRequest($method, $endpoint, $options = [])
+{
+    // 🔥 CORRECCIÓN 1: Verificar token directamente, no llamar getToken()
+    if (!$this->token) {
+        Log::info('Token no encontrado, autenticando...');
+        $this->login();
     }
 
+    // 🔥 CORRECCIÓN 2: Usar $this->token directamente
+    $options['headers'] = array_merge($options['headers'] ?? [], [
+        'Authorization' => 'Bearer ' . $this->token,
+        'Content-Type' => 'application/json'
+    ]);
+
+    try {
+        Log::info('Haciendo petición a eRetail', [
+            'method' => $method,
+            'endpoint' => $endpoint,
+            'has_token' => !empty($this->token)
+        ]);
+
+        $response = $this->client->request($method, $endpoint, $options);
+        $responseBody = $response->getBody()->getContents();
+
+        Log::info('Respuesta HTTP de eRetail', [
+            'status_code' => $response->getStatusCode(),
+            'body_preview' => substr($responseBody, 0, 500)
+        ]);
+
+        return json_decode($responseBody, true);
+
+    } catch (GuzzleException $e) {
+        // Si el error es 401, intentar login de nuevo
+        if ($e->getCode() === 401) {
+            Log::warning('Token expirado (401), reautenticando...');
+            Cache::forget('eretail_token');
+            $this->token = null;
+            $this->login();
+
+            // Reintentar la petición con nuevo token
+            $options['headers']['Authorization'] = 'Bearer ' . $this->token;
+            $response = $this->client->request($method, $endpoint, $options);
+            return json_decode($response->getBody()->getContents(), true);
+        }
+
+        Log::error('Error en petición HTTP a eRetail', [
+            'method' => $method,
+            'endpoint' => $endpoint,
+            'error' => $e->getMessage(),
+            'code' => $e->getCode()
+        ]);
+        
+        throw $e;
+    }
+}
     /**
      * 🔥 BUSCAR PRODUCTO POR CÓDIGO DE BARRAS - ACTUALIZADO
      */
@@ -281,48 +292,66 @@ class ERetailService
         }
     }
 
-    /**
-     * 🔥 BUSCAR PRODUCTO POR ProductVariant.id (goodsCode)
-     * 
-     * Nuevo método para buscar por el ID estable de ProductVariant
-     */
-    public function findProductByVariantId($variantId, $shopCode = null)
-    {
-        $shopCode = $shopCode ?? $this->config['default_shop_code'];
+/**
+ * 🔥 MÉTODO CORREGIDO: findProductByVariantId()
+ * 
+ * Corrección: Manejo flexible de estructura de respuesta
+ */
+public function findProductByVariantId($variantId, $shopCode = null)
+{
+    $shopCode = $shopCode ?? $this->config['default_shop_code'];
 
-        try {
-            Log::info('Buscando producto por ProductVariant.id en eRetail', [
-                'variant_id' => $variantId,
-                'shop_code' => $shopCode
-            ]);
+    try {
+        Log::info('Buscando producto por ProductVariant.id en eRetail', [
+            'variant_id' => $variantId,
+            'shop_code' => $shopCode
+        ]);
 
-            $response = $this->authenticatedRequest('POST', '/api/Goods/getList', [
-                'json' => [
-                    'pageIndex' => 1,
-                    'pageSize' => 1,
-                    'shopCode' => $shopCode,
-                    'goodsCode' => (string) $variantId
-                ]
-            ]);
+        $response = $this->authenticatedRequest('POST', '/api/Goods/getList', [
+            'json' => [
+                'pageIndex' => 1,
+                'pageSize' => 1,
+                'shopCode' => $shopCode,
+                'goodsCode' => (string) $variantId
+            ]
+        ]);
 
-            if ($response['code'] === 0 && isset($response['body']['itemList']) && count($response['body']['itemList']) > 0) {
-                Log::info('Producto encontrado por ProductVariant.id', [
-                    'variant_id' => $variantId,
-                    'goodsCode_encontrado' => $response['body']['itemList'][0]['goodsCode'] ?? 'N/A'
-                ]);
-                return $response['body']['itemList'][0];
-            }
+        // 🔥 CORRECCIÓN: Manejo flexible de estructura de respuesta
+        $code = null;
+        $itemList = null;
 
-            Log::info('Producto no encontrado por ProductVariant.id', [
-                'variant_id' => $variantId
-            ]);
-            return null;
-
-        } catch (GuzzleException $e) {
-            Log::error("Error buscando producto por variant ID {$variantId}: " . $e->getMessage());
-            throw new ERetailException("Error al buscar producto por variant ID: " . $e->getMessage());
+        if (isset($response['code'])) {
+            // Estructura directa
+            $code = $response['code'];
+            $itemList = $response['body']['itemList'] ?? [];
+        } elseif (isset($response['value']['code'])) {
+            // Estructura anidada
+            $code = $response['value']['code'];
+            $itemList = $response['value']['body']['itemList'] ?? [];
         }
+
+        if ($code === 0 && !empty($itemList)) {
+            Log::info('Producto encontrado por ProductVariant.id', [
+                'variant_id' => $variantId,
+                'goodsCode_encontrado' => $itemList[0]['goodsCode'] ?? 'N/A',
+                'tagID_encontrado' => $itemList[0]['tagID'] ?? 'N/A'
+            ]);
+            
+            return $itemList[0];
+        }
+
+        Log::info('Producto no encontrado por ProductVariant.id', [
+            'variant_id' => $variantId,
+            'response_code' => $code ?? 'unknown'
+        ]);
+        
+        return null;
+
+    } catch (GuzzleException $e) {
+        Log::error("Error buscando producto por variant ID {$variantId}: " . $e->getMessage());
+        throw new ERetailException("Error al buscar producto por variant ID: " . $e->getMessage());
     }
+}
 
     /**
      * Test de conexión
@@ -337,57 +366,138 @@ class ERetailService
         }
     }
 
+/**
+ * 🔥 MÉTODO CORREGIDO: refreshSpecificTags()
+ * 
+ * Correcciones aplicadas:
+ * 1. Usar endpoint /api/esl/tag/Refresh en lugar de pushList
+ * 2. Corregir acceso a respuesta: $response['value']['code'] vs $response['code']
+ */
+public function refreshSpecificTags($variantIds, $shopCode = null)
+{
+    $shopCode = $shopCode ?? $this->config['default_shop_code'];
+
+    try {
+        Log::info('Refrescando etiquetas específicas', [
+            'variant_ids_count' => count($variantIds),
+            'shop_code' => $shopCode,
+            'primeros_3_ids' => array_slice($variantIds, 0, 3)
+        ]);
+
+        // SOLUCIÓN: Usar endpoint /api/esl/tag/Refresh para toda la tienda
+        $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
+            'json' => [
+                'shopCode' => $shopCode,
+                'refreshType' => 3, // 3 = specified store (toda la tienda)
+                'refreshName' => '',
+                'tags' => []
+            ]
+        ]);
+
+        // 🔥 CORRECCIÓN 3: Verificar estructura de respuesta correcta
+        // eRetail puede devolver tanto {code: 0} como {value: {code: 0}}
+        $code = null;
+        $message = null;
+
+        if (isset($response['code'])) {
+            // Estructura directa: {code: 0, message: "success"}
+            $code = $response['code'];
+            $message = $response['message'] ?? 'Sin mensaje';
+        } elseif (isset($response['value']['code'])) {
+            // Estructura anidada: {value: {code: 0, message: "success"}}
+            $code = $response['value']['code'];
+            $message = $response['value']['message'] ?? 'Sin mensaje';
+        }
+
+        if ($code === 0) {
+            Log::info('Etiquetas refrescadas exitosamente', [
+                'variant_ids_count' => count($variantIds),
+                'message' => $message
+            ]);
+            return true;
+        }
+
+        Log::error('Error refrescando etiquetas', [
+            'code' => $code ?? 'unknown',
+            'message' => $message ?? 'Respuesta inválida',
+            'full_response' => $response
+        ]);
+        
+        return false;
+
+    } catch (GuzzleException $e) {
+        Log::error('Error HTTP refrescando etiquetas: ' . $e->getMessage());
+        throw new ERetailException('Error al refrescar etiquetas: ' . $e->getMessage());
+    }
+}
+
+
     /**
-     * 🔥 ACTUALIZAR ETIQUETAS ESPECÍFICAS - ACTUALIZADO PARA ProductVariant
+     * 🔥 ALTERNATIVA: REFRESCAR ETIQUETAS ESPECÍFICAS POR TAG ID
      * 
-     * Ahora acepta array de ProductVariant IDs
+     * Esta versión obtiene primero los tag IDs y luego los refresca específicamente
      */
-    public function refreshSpecificTags($variantIds, $shopCode = null)
+    public function refreshSpecificTagsByTagId($variantIds, $shopCode = null)
     {
         $shopCode = $shopCode ?? $this->config['default_shop_code'];
 
         try {
-            Log::info('Refrescando etiquetas específicas', [
+            Log::info('Obteniendo Tag IDs para variantes', [
                 'variant_ids_count' => count($variantIds),
-                'shop_code' => $shopCode,
-                'primeros_3_ids' => array_slice($variantIds, 0, 3)
+                'shop_code' => $shopCode
             ]);
 
-            // Crear array de productos para refresh
-            $refreshData = [];
+            // Paso 1: Obtener los tag IDs asociados a los productos
+            $tagIds = [];
             foreach ($variantIds as $variantId) {
-                $refreshData[] = [
-                    'shopCode' => $shopCode,
-                    'tagID' => '',
-                    'goodsCode' => (string) $variantId, // ProductVariant.id como goodsCode
-                    'goodsName' => '',
-                    'template' => 'REG',
-                    'items' => []
-                ];
+                $product = $this->findProductByVariantId($variantId, $shopCode);
+                if ($product && isset($product['tagID']) && !empty($product['tagID'])) {
+                    $tagIds[] = $product['tagID'];
+                }
             }
 
-            $response = $this->authenticatedRequest('POST', '/api/esl/tag/pushList', [
-                'json' => $refreshData
+            if (empty($tagIds)) {
+                Log::warning('No se encontraron tag IDs válidos para las variantes');
+                return false;
+            }
+
+            Log::info('Tag IDs encontrados', [
+                'tag_ids_count' => count($tagIds),
+                'primeros_3_tags' => array_slice($tagIds, 0, 3)
             ]);
 
-            if ($response['code'] === 0) {
-                Log::info('Etiquetas refrescadas exitosamente', [
-                    'variant_ids_count' => count($variantIds),
-                    'message' => $response['message'] ?? 'Sin mensaje'
+            // Paso 2: Refrescar etiquetas específicas por tag ID
+            $response = $this->authenticatedRequest('POST', '/api/esl/tag/Refresh', [
+                'json' => [
+                    'shopCode' => $shopCode,
+                    'refreshType' => 4, // 4 = tag ID list
+                    'refreshName' => '',
+                    'tags' => $tagIds
+                ]
+            ]);
+
+            // Verificar respuesta con estructura correcta
+            if (isset($response['value']) && $response['value']['code'] === 0) {
+                Log::info('Etiquetas específicas refrescadas exitosamente', [
+                    'tag_ids_count' => count($tagIds),
+                    'message' => $response['value']['message'] ?? 'Sin mensaje'
                 ]);
                 return true;
             }
 
-            Log::error('Error refrescando etiquetas', [
-                'code' => $response['code'],
-                'message' => $response['message'] ?? 'Sin mensaje'
+            $errorCode = $response['value']['code'] ?? 'unknown';
+            $errorMessage = $response['value']['message'] ?? 'Sin mensaje';
+
+            Log::error('Error refrescando etiquetas específicas', [
+                'code' => $errorCode,
+                'message' => $errorMessage
             ]);
-            
+
             return false;
 
         } catch (GuzzleException $e) {
-            Log::error('Error HTTP refrescando etiquetas: ' . $e->getMessage());
-            throw new ERetailException('Error al refrescar etiquetas: ' . $e->getMessage());
+            Log::error('Error HTTP refrescando etiquetas específicas: ' . $e->getMessage());
+            throw new ERetailException('Error al refrescar etiquetas específicas: ' . $e->getMessage());
         }
     }
 
